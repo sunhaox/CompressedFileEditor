@@ -1,6 +1,9 @@
 CFLAGS=-O
+TARGET = build/
 
 all: deflate_dump zlib_dump gzip_dump
+	mkdir -p $(TARGET)
+	mv $^ $(TARGET)
 
 deflate_dump: utils.o puff.o deflate_dump.o
 
@@ -52,3 +55,4 @@ cov: puft
 
 clean:
 	rm -f deflate_dump puft zlib_dump gzip_dump *.o *.gc*
+	rm -f $(TARGET)/*
