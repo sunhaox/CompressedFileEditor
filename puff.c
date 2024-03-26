@@ -181,7 +181,7 @@ local int stored(struct state *s, int print_level)
 
     print_log_to_both("%s\"BTYPE\": {\n", print_level_tabel[print_level]);
     print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"stored_value\": 0,\n", print_level_tabel[print_level + 1]);
+    print_log_to_both("%s\"value\": 0,\n", print_level_tabel[print_level + 1]);
     print_log_to_both("%s\"description\": \"no compression (aka Stored Block)\"\n",
         print_level_tabel[print_level + 1]);
     print_log_to_both("%s},\n", print_level_tabel[print_level]);
@@ -860,7 +860,7 @@ local int fixed(struct state *s, int print_level)
 
     print_log_to_both("%s\"BTYPE\": {\n", print_level_tabel[print_level]);
     print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"stored_value\": 1,\n", print_level_tabel[print_level + 1]);
+    print_log_to_both("%s\"value\": 1,\n", print_level_tabel[print_level + 1]);
     print_log_to_both("%s\"description\": \"compressed with fixed Huffman codes\"\n",
         print_level_tabel[print_level + 1]);
     print_log_to_both("%s},\n", print_level_tabel[print_level]);
@@ -1031,7 +1031,7 @@ local int dynamic(struct state *s, int print_level)
 
     print_log_to_both("%s\"BTYPE\": {\n", print_level_tabel[print_level]);
     print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"stored_value\": 2,\n", print_level_tabel[print_level + 1]);
+    print_log_to_both("%s\"value\": 2,\n", print_level_tabel[print_level + 1]);
     print_log_to_both("%s\"description\": \"compressed with dynamic Huffman codes\"\n",
         print_level_tabel[print_level + 1]);
     print_log_to_both("%s},\n", print_level_tabel[print_level]);
@@ -1040,7 +1040,7 @@ local int dynamic(struct state *s, int print_level)
         print_level_tabel[print_level]);
     print_log_to_both("%s\"bit_size\": 5,\n",
         print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"stored_value\": %d,\n",
+    print_log_to_both("%s\"value\": %d,\n",
         print_level_tabel[print_level + 1], nlen - 257);
     print_log_to_both("%s\"decoded_value\": %d,\n",
         print_level_tabel[print_level + 1], nlen);
@@ -1052,7 +1052,7 @@ local int dynamic(struct state *s, int print_level)
         print_level_tabel[print_level]);
     print_log_to_both("%s\"bit_size\": 5,\n",
         print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"stored_value\": %d,\n",
+    print_log_to_both("%s\"value\": %d,\n",
         print_level_tabel[print_level + 1], ndist - 1);
     print_log_to_both("%s\"decoded_value\": %d,\n",
         print_level_tabel[print_level + 1], ndist);
@@ -1064,7 +1064,7 @@ local int dynamic(struct state *s, int print_level)
         print_level_tabel[print_level]);
     print_log_to_both("%s\"bit_size\": 4,\n",
         print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"stored_value\": %d,\n",
+    print_log_to_both("%s\"value\": %d,\n",
         print_level_tabel[print_level + 1], ncode - 4);
     print_log_to_both("%s\"decoded_value\": %d,\n",
         print_level_tabel[print_level + 1], ncode);
@@ -1087,7 +1087,7 @@ local int dynamic(struct state *s, int print_level)
                 print_level_tabel[print_level + 2], order[index]);
             print_to_compressed_log("%s\"bit_size\": 3,\n",
                 print_level_tabel[print_level + 2]);
-            print_to_compressed_log("%s\"stored_value\": %d,\n",
+            print_to_compressed_log("%s\"value\": %d,\n",
                 print_level_tabel[print_level + 2], lengths[order[index]]);
             print_to_compressed_log("%s\"stored\": 1,\n", print_level_tabel[print_level + 2]);
             if (lengths[order[index]] == 0) {
@@ -1113,7 +1113,7 @@ local int dynamic(struct state *s, int print_level)
             print_to_compressed_log("%s\"index\": %d,\n", print_level_tabel[print_level + 2], index);
             print_to_compressed_log("%s\"length\": %d,\n", print_level_tabel[print_level + 2], order[index]);
             print_to_compressed_log("%s\"bit_size\": 3,\n", print_level_tabel[print_level + 2]);
-            print_to_compressed_log("%s\"stored_value\": %d,\n", print_level_tabel[print_level + 2], lengths[order[index]]);
+            print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 2], lengths[order[index]]);
             print_to_compressed_log("%s\"stored\": 0,\n", print_level_tabel[print_level + 2]);
             print_to_compressed_log("%s\"description\": \"code length not used\"\n", print_level_tabel[print_level + 2]);
             if (index == 18) {
@@ -1170,7 +1170,7 @@ local int dynamic(struct state *s, int print_level)
                 print_level_tabel[print_level + 2], index);
             print_to_compressed_log("%s\"bit_size\": %d,\n",
                 print_level_tabel[print_level + 2], symbol_size);
-            print_to_compressed_log("%s\"stored_value\": %d,\n",
+            print_to_compressed_log("%s\"value\": %d,\n",
                 print_level_tabel[print_level + 2], symbol_value);
             print_to_compressed_log("%s\"decoded_value\": %d,\n",
                 print_level_tabel[print_level + 2], symbol);
@@ -1201,7 +1201,7 @@ local int dynamic(struct state *s, int print_level)
                 if (print_data_verbose) {
                     print_to_compressed_log("%s\"extra\": {\n", print_level_tabel[print_level + 2]);
                     print_to_compressed_log("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 3], 2);
-                    print_to_compressed_log("%s\"stored_value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 3);
+                    print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 3);
                     print_to_compressed_log("%s\"description\": \"repeat times %d (%d + 3)\"\n", print_level_tabel[print_level + 3], repeat_times, repeat_times - 3);
                     print_to_compressed_log("%s},\n", print_level_tabel[print_level + 2]);
 
@@ -1219,7 +1219,7 @@ local int dynamic(struct state *s, int print_level)
                 if (print_data_verbose) {
                     print_to_compressed_log("%s\"extra\": {\n", print_level_tabel[print_level + 2]);
                     print_to_compressed_log("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 3], 3);
-                    print_to_compressed_log("%s\"stored_value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 3);
+                    print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 3);
                     print_to_compressed_log("%s\"description\": \"repeat times %d (%d + 3)\"\n", print_level_tabel[print_level + 3], repeat_times, repeat_times - 3);
                     print_to_compressed_log("%s},\n", print_level_tabel[print_level + 2]);
 
@@ -1237,7 +1237,7 @@ local int dynamic(struct state *s, int print_level)
                 if (print_data_verbose) {
                     print_to_compressed_log("%s\"extra\": {\n", print_level_tabel[print_level + 2]);
                     print_to_compressed_log("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 3], 7);
-                    print_to_compressed_log("%s\"stored_value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 11);
+                    print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 11);
                     print_to_compressed_log("%s\"description\": \"repeat times %d (%d + 11)\"\n", print_level_tabel[print_level + 3], repeat_times, repeat_times - 11);
                     print_to_compressed_log("%s},\n", print_level_tabel[print_level + 2]);
 
@@ -1425,7 +1425,7 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
                 print_log_to_both("%s\"BTYPE\": {\n",
                     print_level_tabel[print_level + 2]);
                 print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 3]);
-                print_log_to_both("%s\"stored_value\": %d,\n", print_level_tabel[print_level + 3], type);
+                print_log_to_both("%s\"value\": %d,\n", print_level_tabel[print_level + 3], type);
                 print_log_to_both("%s\"description\": \"invalid block type (type == 3)\"\n",
                     print_level_tabel[print_level + 3]);
                 print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);

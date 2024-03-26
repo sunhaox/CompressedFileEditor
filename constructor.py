@@ -56,8 +56,6 @@ def flush_final(byte_array):
 def construct_deflate_header(json_data, byte_array):
     construct_val_2_bits(byte_array, json_data["BFINAL"]["value"],
         json_data["BFINAL"]["bit_size"])
-    construct_val_2_bits(byte_array, json_data["BTYPE"]["stored_value"],
-        json_data["BTYPE"]["bit_size"])
 
 def construct_deflate_stored_block(json_data, byte_array):
     fill_reserved_bits_with_0(byte_array)
@@ -157,23 +155,23 @@ def construct_deflate_dynamic_block(json_data, byte_array):
     literal_length_symbol_dict = {}
     distance_symbol_dict = {}
 
-    construct_val_2_bits(byte_array, json_data["HLIT"]["stored_value"],
+    construct_val_2_bits(byte_array, json_data["HLIT"]["value"],
         json_data["HLIT"]["bit_size"])
-    construct_val_2_bits(byte_array, json_data["HDIST"]["stored_value"],
+    construct_val_2_bits(byte_array, json_data["HDIST"]["value"],
         json_data["HDIST"]["bit_size"])
-    construct_val_2_bits(byte_array, json_data["HCLEN"]["stored_value"],
+    construct_val_2_bits(byte_array, json_data["HCLEN"]["value"],
         json_data["HCLEN"]["bit_size"])
 
     for code_length in json_data["CODE_LENGTH_TABLE"]:
         if code_length["stored"]:
-            construct_val_2_bits(byte_array, code_length["stored_value"],
+            construct_val_2_bits(byte_array, code_length["value"],
             code_length["bit_size"])
 
     for literal_length_distance in json_data["LITERAL_LENGTH_DISTANCE_TABLE"]:
-        construct_stream_2_bits(byte_array, literal_length_distance["stored_value"],
+        construct_stream_2_bits(byte_array, literal_length_distance["value"],
         literal_length_distance["bit_size"])
         if "extra" in literal_length_distance:
-            construct_val_2_bits(byte_array, literal_length_distance["extra"]["stored_value"],
+            construct_val_2_bits(byte_array, literal_length_distance["extra"]["value"],
             literal_length_distance["extra"]["bit_size"])
 
     literal_length_huffman_table = json_data["extracted_literal_length_huffman_table"]["items"]
@@ -235,11 +233,11 @@ def construct_deflate_dynamic_block(json_data, byte_array):
 def construct_deflate_bin(json_data, byte_array):
     for deflate_block in json_data:
         construct_deflate_header(deflate_block, byte_array)
-        if deflate_block["BTYPE"]["stored_value"] == 0:
+        if deflate_block["BTYPE"]["value"] == 0:
             construct_deflate_stored_block(deflate_block, byte_array)
-        elif deflate_block["BTYPE"]["stored_value"] == 1:
+        elif deflate_block["BTYPE"]["value"] == 1:
             construct_deflate_fix_block(deflate_block, byte_array)
-        elif deflate_block["BTYPE"]["stored_value"] == 2:
+        elif deflate_block["BTYPE"]["value"] == 2:
             construct_deflate_dynamic_block(deflate_block, byte_array)
 
     flush_final(byte_array)
