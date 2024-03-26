@@ -472,6 +472,7 @@ int gzip_dump(unsigned char *dest,
 
     if (source_skip_header_size - decompressed_len >= 4) {
         print_log_to_both("%s\"CHECKSUM_IN_FILE\": {\n", print_level_tabel[print_level + 2]);
+        print_log_to_both("%s\"bit_size\": 32,\n", print_level_tabel[print_level + 3]);
         print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
         print_hex_with_buffer((unsigned char *)source + gzip_header_size + decompressed_len, 4, print_level + 4);
         print_log_to_both("%s],\n", print_level_tabel[print_level + 3]);
