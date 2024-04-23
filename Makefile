@@ -1,7 +1,7 @@
 CFLAGS=-O -g
 TARGET = build/
 
-all: deflate_dump zlib_dump gzip_dump lz4_dump
+all: deflate_dump zlib_dump gzip_dump lz4_dump zstd_dump
 	mkdir -p $(TARGET)
 	mv -f $^ $(TARGET)
 
@@ -12,6 +12,8 @@ zlib_dump: utils.o puff.o zlib_dump.o
 gzip_dump: utils.o puff.o gzip_dump.o
 
 lz4_dump: utils.o puff.o lz4_dump.o
+
+zstd_dump: utils.o puff.o zstd_dump.o
 
 utils.o: utils.h
 
@@ -24,6 +26,8 @@ zlib_dump.o: puff.h
 gzip_dump.o: puff.h
 
 lz4_dump.o: puff.h
+
+zstd_dump.o: puff.h
 
 test: deflate_dump
 	deflate_dump zeros.raw
@@ -58,5 +62,5 @@ cov: puft
 	@gcov -n puff.c
 
 clean:
-	rm -f deflate_dump puft zlib_dump gzip_dump lz4_dump *.o *.gc*
+	rm -f deflate_dump puft zlib_dump gzip_dump lz4_dump zstd_dump *.o *.gc*
 	rm -f $(TARGET)/*
