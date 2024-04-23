@@ -398,7 +398,7 @@ int zstd_dump(unsigned char *dest,
               unsigned long sourcelen,
               int print_level)
 {
-    int ret;
+    int ret = 0;
     unsigned zstd_header_size;
     unsigned zstd_blocks_size;
 

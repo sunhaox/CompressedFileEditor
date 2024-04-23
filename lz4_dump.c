@@ -373,7 +373,7 @@ int lz4_dump(unsigned char *dest,
               unsigned long sourcelen,
               int print_level)
 {
-    int ret;
+    int ret = 0;
     unsigned lz4_header_size;
     unsigned lz4_blocks_size;
 
