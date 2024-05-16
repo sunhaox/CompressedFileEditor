@@ -9,6 +9,19 @@
  */
 
 #include <stddef.h>   /* size_t */
+#include "utils.h"
+
+// If the data doesn't have decompressed size with it, fallback on assuming the
+// compression ratio is at most 16
+#define MAX_COMPRESSION_RATIO (16)
+
+// Protect against allocating too much memory for output
+#define MAX_OUTPUT_SIZE ((size_t)1024 * 1024 * 1024)
+
+// Error message then exit
+#define ERR_OUT(...) { fprintf(stderr, __VA_ARGS__); exit(1); }
+
+typedef unsigned char u8;
 
 /******* EXPOSED TYPES ********************************************************/
 /*
@@ -28,7 +41,7 @@ size_t ZSTD_decompress(void *const dst, const size_t dst_len,
 /// `ZSTD_decompress` but uses the provided dict
 size_t ZSTD_decompress_with_dict(void *const dst, const size_t dst_len,
                               const void *const src, const size_t src_len,
-                              dictionary_t* parsed_dict);
+                              dictionary_t* parsed_dict, int print_level);
 
 /// Get the decompressed size of an input stream so memory can be allocated in
 /// advance

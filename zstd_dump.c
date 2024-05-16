@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "puff.h"
+#include "zstd_decompress.h"
 
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
@@ -33,60 +33,33 @@
 
 unsigned char contentChecksum_g;
 
-/* Return size times approximately the cube root of 2, keeping the result as 1,
-   3, or 5 times a power of 2 -- the result is always > size, until the result
-   is the maximum value of an unsigned long, where it remains.  This is useful
-   to keep reallocations less than ~33% over the actual data. */
-local size_t bythirds(size_t size)
-{
-    int n;
-    size_t m;
-
-    m = size;
-    for (n = 0; m; n++)
-        m >>= 1;
-    if (n < 3)
-        return size + 1;
-    n -= 3;
-    m = size >> n;
-    m += m == 6 ? 2 : 1;
-    m <<= n;
-    return m > size ? m : (size_t)(-1);
-}
-
-/* Read the input file *name, or stdin if name is NULL, into allocated memory.
-   Reallocate to larger buffers until the entire file is read in.  Return a
-   pointer to the allocated data, or NULL if there was a memory allocation
-   failure.  *len is the number of bytes of data read from the input file (even
-   if load() returns NULL).  If the input file was empty or could not be opened
-   or read, *len is zero. */
-local void *load(const char *name, size_t *len)
-{
+typedef struct {
+    u8* address;
     size_t size;
-    void *buf, *swap;
-    FILE *in;
+} buffer_s;
 
-    *len = 0;
-    buf = malloc(size = 4096);
-    if (buf == NULL)
-        return NULL;
-    in = name == NULL ? stdin : fopen(name, "rb");
-    if (in != NULL) {
-        for (;;) {
-            *len += fread((char *)buf + *len, 1, size - *len, in);
-            if (*len < size) break;
-            size = bythirds(size);
-            if (size == *len || (swap = realloc(buf, size)) == NULL) {
-                free(buf);
-                buf = NULL;
-                break;
-            }
-            buf = swap;
-        }
-        fclose(in);
-    }
-    return buf;
+static void freeBuffer(buffer_s b) { free(b.address); }
+
+static buffer_s read_file(const char *path)
+{
+    FILE* const f = fopen(path, "rb");
+    if (!f) ERR_OUT("failed to open file %s \n", path);
+
+    fseek(f, 0L, SEEK_END);
+    size_t const size = (size_t)ftell(f);
+    rewind(f);
+
+    void* const ptr = malloc(size);
+    if (!ptr) ERR_OUT("failed to allocate memory to hold %s \n", path);
+
+    size_t const read = fread(ptr, 1, size, f);
+    if (read != size) ERR_OUT("error while reading file %s \n", path);
+
+    fclose(f);
+    buffer_s const b = { ptr, size };
+    return b;
 }
+
 
 local unsigned decode_zstd_header(const unsigned char *source, int print_level)
 {
@@ -333,69 +306,9 @@ local unsigned decode_zstd_header(const unsigned char *source, int print_level)
     return window_des_size + dic_id_size + frame_content_size_size + 5;
 }
 
-int decode_zstd_block(const unsigned char *source, int print_level)
-{
-    unsigned int block_header, block_size, byte_count;
-    unsigned char last_block, block_type;
-
-    byte_count = 0;
-
-    print_log_to_both("%s\"ZSTD_BLOCK\": [\n",
-        print_level_tabel[print_level]);
-    do
-    {
-        // Each frame must have at least one block.
-        block_header = *(unsigned int *)source & 0xFFFFFF;
-        last_block = block_header & 0x1;
-        block_type = (block_header >> 1) & 0x3;
-        block_size = (block_header >> 3);
-        print_log_to_both("%s{\n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"BLOCK_BIT_POSITION\": %d,\n", print_level_tabel[print_level + 2], byte_count * 8);
-        print_log_to_both("%s\"last block\": %d,\n", print_level_tabel[print_level + 2], last_block);
-        if (block_type == 0) {
-            print_log_to_both("%s\"block type\": \"raw block\",\n", print_level_tabel[print_level + 2]);
-        }
-        else if (block_type == 1){
-            print_log_to_both("%s\"block type\": \"RLE block\",\n", print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"repeat time\": %d,\n", print_level_tabel[print_level + 2], byte_count);
-            block_size = 1;
-        }
-        else if (block_type == 2)
-        {
-            print_log_to_both("%s\"block type\": \"compressed block\",\n", print_level_tabel[print_level + 2]);
-        }
-        else if (block_type == 3)
-        {
-            print_log_to_both("%s\"block type\": \"Reserved\",\n", print_level_tabel[print_level + 2]);
-        }
-        print_log_to_both("%s\"BLOCK_BIT_SIZE\": %d\n", print_level_tabel[print_level + 2], (block_size + 3) * 8);
-
-        if (last_block) {
-            print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-        }
-        else {
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
-        }
-        
-        
-        // TODO decode
-        source += block_size + 3;
-        byte_count += block_size + 3;
-
-    } while (!last_block);
-
-    if (contentChecksum_g)
-        print_log_to_both("%s],\n", print_level_tabel[print_level]);
-    else
-        print_log_to_both("%s]\n", print_level_tabel[print_level]);
-
-    return byte_count;
-}
-
-int zstd_dump(unsigned char *dest,
-              unsigned long *destlen,
-              const unsigned char *source,
-              unsigned long sourcelen,
+int zstd_dump(void *const dst, const size_t dst_len,
+              const void *const src, const size_t src_len,
+              dictionary_t* parsed_dict,
               int print_level)
 {
     int ret = 0;
@@ -405,18 +318,21 @@ int zstd_dump(unsigned char *dest,
     print_log_to_both("%s{\n", print_level_tabel[print_level]);
     print_log_to_both("%s\"ZSTD_FORMAT\": {\n", print_level_tabel[print_level + 1]);
 
-    zstd_header_size = decode_zstd_header(source, print_level + 2);
+    zstd_header_size = decode_zstd_header(src, print_level + 2);
     if (zstd_header_size == 0) {
         return -1;
     }
 
-    zstd_blocks_size = decode_zstd_block(source + zstd_header_size, print_level + 2);
+    size_t const src_offset =
+        ZSTD_decompress_with_dict(dst, dst_len,
+                                  src, src_len,
+                                  parsed_dict, print_level + 2);
 
     if (contentChecksum_g) {
         print_log_to_both("%s\"Content Checksum\": {\n", print_level_tabel[print_level + 2]);
         print_log_to_both("%s\"bit_size\": 32,\n", print_level_tabel[print_level + 3]);
         print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
-        print_hex_with_buffer((unsigned char *)source + zstd_header_size + zstd_blocks_size, 4, print_level+4);
+        print_hex_with_buffer((unsigned char *)src + src_offset, 4, print_level+4);
         print_log_to_both("%s]\n", print_level_tabel[print_level + 3]);
         print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
     }
@@ -431,10 +347,8 @@ int main(int argc, char **argv)
 {
     int ret, put = 0, i, wr_file = 0;
     unsigned file_name_len = 0;
-    char *arg, *name = NULL;
-    unsigned char *source = NULL, *dest;
+    char *arg, *name = NULL, *dic_name = NULL;
     size_t len = 0;
-    unsigned long destlen;
     char compressed_log_file_name[250] = {0};
     char decompressed_log_file_name[250] = {0};
     char decompressed_file_name[250] = {0};
@@ -452,21 +366,22 @@ int main(int argc, char **argv)
             }
         }
         else if (name != NULL) {
-            fprintf(stderr, "only one file name allowed\n");
-            return 3;
+            if (dic_name != NULL) {
+                fprintf(stderr, "only one or two files name allowed\n");
+                return 3;
+            }
+            else {
+                dic_name = arg;
+            }
         }
         else
             name = arg;
-    source = load(name, &len);
-    if (source == NULL) {
-        fprintf(stderr, "memory allocation failure\n");
-        return 4;
-    }
-    if (len == 0) {
-        fprintf(stderr, "could not read %s, or it was empty\n",
-                name == NULL ? "<stdin>" : name);
-        free(source);
-        return 3;
+    
+    buffer_s const input = read_file(name);
+
+    buffer_s dict = { NULL, 0 };
+    if (dic_name) {
+        dict = read_file(dic_name);
     }
 
     file_name_len = strlen(name);
@@ -485,33 +400,58 @@ int main(int argc, char **argv)
 
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
 
-    ret = zstd_dump(NIL, &destlen, source, len, 0);
+    size_t out_capacity = ZSTD_get_decompressed_size(input.address, input.size);
+    if (out_capacity == (size_t)-1) {
+        out_capacity = MAX_COMPRESSION_RATIO * input.size;
+        fprintf(stderr, "WARNING: Compressed data does not contain "
+                        "decompressed size, going to assume the compression "
+                        "ratio is at most %d (decompressed size of at most "
+                        "%u) \n",
+                MAX_COMPRESSION_RATIO, (unsigned)out_capacity);
+    }
+    if (out_capacity > MAX_OUTPUT_SIZE)
+        ERR_OUT("Required output size too large for this implementation \n");
+
+    u8* const output = malloc(out_capacity);
+    if (!output) ERR_OUT("failed to allocate memory \n");
+
+    dictionary_t* const parsed_dict = create_dictionary();
+    if (dict.size) {
+        parse_dictionary(parsed_dict, dict.address, dict.size);
+    }
+
+    ret = zstd_dump(output, out_capacity, input.address, input.size, parsed_dict, 0);
 
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
 
+    free_dictionary(parsed_dict);
+
     /* if requested, inflate again and write decompressed data to stdout */
-    if (put && ret == 0) {
-        dest = malloc(destlen);
-        if (dest == NULL) {
-            fprintf(stderr, "memory allocation failure\n");
-            return 4;
-        }
+    if (put) {
+        // dest = malloc(destlen);
+        // if (dest == NULL) {
+        //     fprintf(stderr, "memory allocation failure\n");
+        //     return 4;
+        // }
 
-        decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
-        zstd_dump(dest, &destlen, source, len, 0);
-        fclose(decompressed_data_log_file);
+        // decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
+        // zstd_dump(dest, &destlen, source, len, 0);
+        // fclose(decompressed_data_log_file);
 
-        if (wr_file) {
-            decompressed_data_file = fopen(decompressed_file_name, "wb");
-            fwrite(dest, 1, destlen, decompressed_data_file);
-            fclose(decompressed_data_file);
-        }
+        // if (wr_file) {
+        //     decompressed_data_file = fopen(decompressed_file_name, "wb");
+        //     fwrite(dest, 1, destlen, decompressed_data_file);
+        //     fclose(decompressed_data_file);
+        // }
 
-        free(dest);
+        // free(dest);
     }
 
     /* clean up */
-    free(source);
+    freeBuffer(input);
+    freeBuffer(dict);
+    free(output);
+
     return ret;
 }
