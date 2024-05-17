@@ -5,10 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include "cJSON.h"
 
 extern FILE *compressed_data_log_file;
 extern FILE *decompressed_data_log_file;
 extern FILE *decompressed_data_file;
+
+extern cJSON *compressed_data_json;
+extern cJSON *decompressed_data_json;
 
 extern char *print_level_tabel[];
 extern unsigned char print_data_verbose;
@@ -25,6 +29,7 @@ void print_decompressed_data_hex(int data_val, int print_level);
 void print_compressed_data_final(int print_level);
 void print_decompressed_data_final(int print_level);
 
+void dump_data_to_json(cJSON* json, const char *const name, unsigned char *buffer, unsigned int num);
 void print_log_to_both(char *fmt, ...);
 void print_hex_with_buffer(unsigned char *buffer, unsigned int num, int print_level);
 

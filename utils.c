@@ -4,6 +4,9 @@ FILE *compressed_data_log_file = NULL;
 FILE *decompressed_data_log_file = NULL;
 FILE *decompressed_data_file = NULL;
 
+cJSON *compressed_data_json = NULL;
+cJSON *decompressed_data_json = NULL;
+
 unsigned char print_data_verbose = 0;
 
 unsigned int compressed_data_print_num_count = 0;
@@ -157,6 +160,66 @@ void print_log_to_both(char *fmt, ...)
         vfprintf(decompressed_data_log_file, fmt, args);
         va_end(args);
     }
+}
+
+void dump_data_to_number_array_json(cJSON* json, const char *const name, unsigned char *buffer, unsigned int num)
+{
+    unsigned char print_buffer[200] = {0};
+    unsigned int print_count = 0;
+    unsigned int lines, remain, i, j;
+    unsigned char data_val;
+
+    lines = num >> 4;
+    remain = num & 0xF;
+
+    cJSON *array = cJSON_AddArrayToObject(json, name);
+
+    for (i = 0; i < num; i++) {
+        data_val = *(buffer + i);
+        cJSON* item = cJSON_CreateNumber(data_val);
+        cJSON_AddItemToArray(array, item);
+    }
+
+}
+
+void dump_data_to_string_json(cJSON* json, const char *const name, unsigned char *buffer, unsigned int num)
+{
+    unsigned char print_buffer[200] = {0};
+    unsigned int print_count = 0;
+    unsigned int lines, remain, i, j;
+    unsigned char data_val;
+
+    lines = num >> 4;
+    remain = num & 0xF;
+
+    cJSON *array = cJSON_AddArrayToObject(json, name);
+
+    for (i = 0; i < lines; i++) {
+        for (j = 0; j < 16; j++) {
+            data_val = *(buffer + (i << 4) + j);
+            print_count += sprintf(print_buffer + print_count, "0x%02x ", data_val);
+        }
+
+        cJSON *item = cJSON_CreateString(print_buffer);
+        cJSON_AddItemToArray(array, item);
+
+        memset(print_buffer, 0, print_count);
+        print_count = 0;
+    }
+
+    for (j = 0; j < remain; j++) {
+        data_val = *(buffer + (lines << 4) + j);
+        print_count += sprintf(print_buffer + print_count, "0x%02x ", data_val);
+
+        cJSON *item = cJSON_CreateString(print_buffer);
+        cJSON_AddItemToArray(array, item);
+    }
+
+}
+
+void dump_data_to_json(cJSON* json, const char *const name, unsigned char *buffer, unsigned int num)
+{
+    dump_data_to_number_array_json(json, name, buffer, num);
 }
 
 void print_hex_with_buffer(unsigned char *buffer, unsigned int num, int print_level)

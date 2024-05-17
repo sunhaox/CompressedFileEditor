@@ -87,7 +87,7 @@ local void *load(const char *name, size_t *len)
     return buf;
 }
 
-local int decode_gzip_header(const unsigned char *source, int print_level)
+local int decode_gzip_header(const unsigned char *source, cJSON* json)
 {
     unsigned char comp_method, file_flags, compression_flags, os_type;
     unsigned int modification_time;
@@ -100,22 +100,14 @@ local int decode_gzip_header(const unsigned char *source, int print_level)
     if (!source)
         return -1;
 
-    print_log_to_both("%s\"GZIP_HEADER\": {\n",
-        print_level_tabel[print_level]);
-
     if (source[buffer_index] != 0x1f) {
         fprintf(stderr, "gzip header decode ID1 failed!\n");
         return -1;
     } else {
-        print_log_to_both("%s\"ID1\": {\n",
-            print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"bit_size\": 8,\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"value\": %d,\n",
-            print_level_tabel[print_level + 2], source[buffer_index]);
-        print_log_to_both("%s\"description\": \"fixed value\"\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
+        cJSON* id1_json = cJSON_AddObjectToObject(json, "ID1");
+        cJSON_AddNumberToObject(id1_json, "bit_size", 8);
+        cJSON_AddNumberToObject(id1_json, "value", source[buffer_index]);
+        cJSON_AddStringToObject(id1_json, "description", "fixed value");
     }
 
     buffer_index++;
@@ -123,242 +115,169 @@ local int decode_gzip_header(const unsigned char *source, int print_level)
         fprintf(stderr, "gzip header decode ID2 failed!\n");
         return -1;
     } else {
-        print_log_to_both("%s\"ID2\": {\n",
-            print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"bit_size\": 8,\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"value\": %d,\n",
-            print_level_tabel[print_level + 2], source[buffer_index]);
-        print_log_to_both("%s\"description\": \"fixed value\"\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
+        cJSON* id2_json= cJSON_AddObjectToObject(json, "ID2");
+        cJSON_AddNumberToObject(id2_json, "bit_size", 8);
+        cJSON_AddNumberToObject(id2_json, "value", source[buffer_index]);
+        cJSON_AddStringToObject(id2_json, "description", "fixed value");
     }
 
     buffer_index++;
     comp_method = source[buffer_index];
 
-    print_log_to_both("%s\"COMPRESSION_METHOD\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 8,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 2], comp_method);
+    cJSON* compression_method_json = cJSON_AddObjectToObject(json, "COMPRESSION_METHOD");
+    cJSON_AddNumberToObject(compression_method_json, "bit_size", 8);
+    cJSON_AddNumberToObject(compression_method_json, "value", comp_method);
     if (comp_method == 8) {
-        print_log_to_both("%s\"description\": \"DEFLATE\"\n",
-        print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(compression_method_json, "description", "DEFLATE");
     } else if (comp_method < 8) {
-        print_log_to_both("%s\"description\": \"Reserved\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(compression_method_json, "description", "Reserved");
     } else {
-        print_log_to_both("%s\"description\": \"Invalid\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(compression_method_json, "description", "Invalid");
         fprintf(stderr, "gzip header decode failed!\n");
         return -1;
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
 
     buffer_index++;
     file_flags = source[buffer_index];
 
-    print_log_to_both("%s\"file_flags\": {\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"FTEXT\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], file_flags & 0x1);
+    cJSON* file_flags_json = cJSON_AddObjectToObject(json, "file_flags");
+
+    cJSON* ftext_json = cJSON_AddObjectToObject(file_flags_json, "FTEXT");
+    cJSON_AddNumberToObject(ftext_json, "bit_size", 1);
+    cJSON_AddNumberToObject(ftext_json, "value", file_flags & 0x1);
     if (file_flags & 0x1) {
-        print_log_to_both("%s\"description\": \"ASCII text\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(ftext_json, "description", "ASCII text");
     } else {
-        print_log_to_both("%s\"description\": \"binary data\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(ftext_json, "description", "binary data");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"FHCRC\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], (file_flags >> 1) & 0x1);
-
+    cJSON* fhcrc_json = cJSON_AddObjectToObject(file_flags_json, "FHCRC");
+    cJSON_AddNumberToObject(fhcrc_json, "bit_size", 1);
+    cJSON_AddNumberToObject(fhcrc_json, "value", (file_flags >> 1) & 0x1);
     if ((file_flags >> 1) & 0x1) {
-        print_log_to_both("%s\"description\": \"CRC16 for the gzip header is present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fhcrc_json, "description", "CRC16 for the gzip header is present");
     } else {
-        print_log_to_both("%s\"description\": \"CRC16 for the gzip header is not present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fhcrc_json, "description", "CRC16 for the gzip header is not present");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"FEXTRA\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], (file_flags >> 2) & 0x1);
-
+    cJSON* fextra_json = cJSON_AddObjectToObject(file_flags_json, "FEXTRA");
+    cJSON_AddNumberToObject(fextra_json, "bit_size", 1);
+    cJSON_AddNumberToObject(fextra_json, "value", (file_flags >> 2) & 0x1);
     if ((file_flags >> 2) & 0x1) {
-        print_log_to_both("%s\"description\": \"optional extra fields are present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fextra_json, "description", "optional extra fields are present");
     } else {
-        print_log_to_both("%s\"description\": \"optional extra fields are not present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fextra_json, "description", "optional extra fields are not present");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"FNAME\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], (file_flags >> 3) & 0x1);
-
+    cJSON* fname_json = cJSON_AddObjectToObject(file_flags_json, "FNAME");
+    cJSON_AddNumberToObject(fname_json, "bit_size", 1);
+    cJSON_AddNumberToObject(fname_json, "value", (file_flags >> 3) & 0x1);
     if ((file_flags >> 3) & 0x1) {
-        print_log_to_both("%s\"description\": \"original file name is present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fname_json, "description", "original file name is present");
     } else {
-        print_log_to_both("%s\"description\": \"original file name is not present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fname_json, "description", "original file name is not present");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"FCOMMENT\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], (file_flags >> 4) & 0x1);
-
+    cJSON* fcomment_json = cJSON_AddObjectToObject(file_flags_json, "FCOMMENT");
+    cJSON_AddNumberToObject(fcomment_json, "bit_size", 1);
+    cJSON_AddNumberToObject(fcomment_json, "value", (file_flags >> 4) & 0x1);
     if ((file_flags >> 4) & 0x1) {
-        print_log_to_both("%s\"description\": \"zero-terminated file comment is present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fcomment_json, "description", "zero-terminated file comment is present");
     } else {
-        print_log_to_both("%s\"description\": \"zero-terminated file comment is not present\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fcomment_json, "description", "zero-terminated file comment is not present");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"RESERVED\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 3,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], (file_flags >> 5) & 0x7);
+    cJSON* reserved_json = cJSON_AddObjectToObject(file_flags_json, "RESERVED");
+    cJSON_AddNumberToObject(reserved_json, "bit_size", 3);
+    cJSON_AddNumberToObject(reserved_json, "value", (file_flags >> 5) & 0x7);
 
     if ((file_flags >> 5) & 0x7) {
-        print_log_to_both("%s\"description\": \"reserved bits should be 0!\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(reserved_json, "description", "reserved bits should be 0!");
         fprintf(stderr, "gzip header decode failed!\n");
         return -1;
     } else {
-        print_log_to_both("%s\"description\": \"reserved\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(reserved_json, "description", "reserved");
     }
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
 
     buffer_index++;
     modification_time = source[4] + (source[5] << 8) + (source[6] << 16) + (source[7] << 24);
     buffer_index += 4;
-    print_log_to_both("%s\"MTIME\": {\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 32,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 2], modification_time);
+
+    cJSON* mtime_json = cJSON_AddObjectToObject(json, "MTIME");
+    cJSON_AddNumberToObject(mtime_json, "bit_size", 32);
+    cJSON_AddNumberToObject(mtime_json, "value", modification_time);
     if (modification_time) {
         t = modification_time;
         ts = *localtime(&t);
         strftime(buf, sizeof(buf), "%a %Y-%m-%d %H:%M:%S", &ts);
-        print_log_to_both("%s\"description\": \"Modification TIME: %s\"\n",
-            print_level_tabel[print_level + 2], buf);
+        cJSON_AddStringToObject(mtime_json, "description", buf);
     } else {
-        print_log_to_both("%s\"description\": \"no time stamp is available\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(mtime_json, "description", "no time stamp is available");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
 
     compression_flags = source[buffer_index];
-    print_log_to_both("%s\"XFL\": {\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 8,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 2], compression_flags);
+    cJSON* xfl_json = cJSON_AddObjectToObject(json, "XFL");
+    cJSON_AddNumberToObject(xfl_json, "bit_size", 8);
+    cJSON_AddNumberToObject(xfl_json, "value", compression_flags);
     if (compression_flags == 2) {
-        print_log_to_both("%s\"description\": \"maximum compression, slowest algorithm\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(xfl_json, "description", "maximum compression, slowest algorithm");
     } else if (compression_flags == 4) {
-        print_log_to_both("%s\"description\": \"fastest algorithm\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(xfl_json, "description", "fastest algorithm");
     } else {
-        print_log_to_both("%s\"description\": \"compression flags\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(xfl_json, "description", "compression flags");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
 
     buffer_index++;
     os_type = source[buffer_index];
-    print_log_to_both("%s\"OS\": {\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 8,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 2], os_type);
+    cJSON* os_json = cJSON_AddObjectToObject(json, "OS");
+    cJSON_AddNumberToObject(os_json, "bit_size", 8);
+    cJSON_AddNumberToObject(os_json, "value", os_type);
     switch (os_type) {
         case 0:
-            print_log_to_both("%s\"description\": \"FAT filesystem (MS-DOS, OS/2, NT/Win32\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "FAT filesystem (MS-DOS, OS/2, NT/Win32");
             break;
         case 1:
-            print_log_to_both("%s\"description\": \"Amiga\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "Amiga");
             break;
         case 2:
-            print_log_to_both("%s\"description\": \"VMS (or OpenVMS)\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "VMS (or OpenVMS)");
             break;
         case 3:
-            print_log_to_both("%s\"description\": \"Unix\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "Unix");
             break;
         case 4:
-            print_log_to_both("%s\"description\": \"VM/CMS\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "VM/CMS");
             break;
         case 5:
-            print_log_to_both("%s\"description\": \"Atari TOS\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "Atari TOS");
             break;
         case 6:
-            print_log_to_both("%s\"description\": \"HPFS filesystem (OS/2, NT)\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "HPFS filesystem (OS/2, NT)");
             break;
         case 7:
-            print_log_to_both("%s\"description\": \"Macintosh\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "Macintosh");
             break;
         case 8:
-            print_log_to_both("%s\"description\": \"Z-System\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "Z-System");
             break;
         case 9:
-            print_log_to_both("%s\"description\": \"CP/M\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "CP/M");
             break;
         case 10:
-            print_log_to_both("%s\"description\": \"TOPS-20\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "TOPS-20");
             break;
         case 11:
-            print_log_to_both("%s\"description\": \"NTFS filesystem (NT)\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "NTFS filesystem (NT)");
             break;
         case 12:
-            print_log_to_both("%s\"description\": \"QDOS\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "QDOS");
             break;
         case 13:
-            print_log_to_both("%s\"description\": \"Acorn RISCOS\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "Acorn RISCOS");
             break;
 
         default:
-            print_log_to_both("%s\"description\": \"unknown OS\"\n",
-                print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(os_json, "description", "unknown OS");
             break;
     }
 
@@ -369,63 +288,40 @@ local int decode_gzip_header(const unsigned char *source, int print_level)
         buffer_index++;
         data_num |= (source[buffer_index] << 8);
         buffer_index++;
-        print_log_to_both("%s}, \n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"XLEN\": {\n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"bit_size\": 16,\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"value\": %d,\n",
-            print_level_tabel[print_level + 2], data_num);
-        print_log_to_both("%s\"description\": \"bytes of extra field\"\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s}, \n", print_level_tabel[print_level + 1]);
 
-        print_log_to_both("%s\"EXTRA\": {\n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"bit_size\": %d,\n",
-            print_level_tabel[print_level + 2], data_num << 3);
-        print_log_to_both("%s\"value\": [\n",
-            print_level_tabel[print_level + 2]);
-        print_hex_with_buffer((unsigned char *)&source[buffer_index], data_num, print_level + 3);
-        print_log_to_both("%s]\n", print_level_tabel[print_level + 2]);
+        cJSON* xlen_json = cJSON_AddObjectToObject(json, "XLEN");
+        cJSON_AddNumberToObject(xlen_json, "bit_size", 16);
+        cJSON_AddNumberToObject(xlen_json, "value", data_num);
+        cJSON_AddStringToObject(xlen_json, "description", "bytes of extra field");
+        
+        cJSON* extra_json = cJSON_AddObjectToObject(json, "EXTRA");
+        cJSON_AddNumberToObject(extra_json, "bit_size", data_num<<3);
+        dump_data_to_json(extra_json, "value", (unsigned char *)&source[buffer_index], data_num);
 
         buffer_index += data_num;
     }
 
     if ((file_flags >> 3) & 0x1) {
-        print_log_to_both("%s}, \n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"FNAME\": {\n", print_level_tabel[print_level + 1]);
-        string_len = strlen(&source[buffer_index]) + 1;
-        print_log_to_both("%s\"bit_size\": %d,\n",
-            print_level_tabel[print_level + 2], string_len << 3);
-        print_log_to_both("%s\"value\": \"%s\"\n",
-            print_level_tabel[print_level + 2], &source[buffer_index]);
+        cJSON* fname_json = cJSON_AddObjectToObject(json, "FNAME");
+        cJSON_AddNumberToObject(fname_json, "bit_size", string_len << 3);
+        cJSON_AddStringToObject(fname_json, "value", &source[buffer_index]);
         buffer_index += string_len;
     }
 
     if ((file_flags >> 4) & 0x1) {
-        print_log_to_both("%s}, \n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"FCOMMENT\": {\n", print_level_tabel[print_level + 1]);
-        string_len = strlen(&source[buffer_index]) + 1;
-        print_log_to_both("%s\"bit_size\": %d,\n",
-            print_level_tabel[print_level + 2], string_len << 3);
-        print_log_to_both("%s\"value\": \"%s\"\n",
-            print_level_tabel[print_level + 2], &source[buffer_index]);
+        cJSON* fcomment_json = cJSON_AddObjectToObject(json, "FCOMMENT");
+        cJSON_AddNumberToObject(fcomment_json, "bit_size", string_len << 3);
+        cJSON_AddStringToObject(fcomment_json, "value", &source[buffer_index]);
         buffer_index += string_len;
     }
 
     if ((file_flags >> 1) & 0x1) {
-        print_log_to_both("%s}, \n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"FHCRC\": {\n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"bit_size\": %d,\n",
-            print_level_tabel[print_level + 2], 16);
-        print_log_to_both("%s\"value\": [\n",
-            print_level_tabel[print_level + 2]);
-        print_hex_with_buffer((unsigned char *)&source[buffer_index], 2, print_level + 3);
-        print_log_to_both("%s],\n", print_level_tabel[print_level + 2]);
+        cJSON* fhcrc_json = cJSON_AddObjectToObject(json, "FHCRC");
+        cJSON_AddNumberToObject(fhcrc_json, "bit_size", 16);
+        dump_data_to_json(fhcrc_json, "value", (unsigned char *)&source[buffer_index], 2);
         buffer_index += 2;
     }
 
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
     return buffer_index;
 }
 
@@ -433,7 +329,7 @@ int gzip_dump(unsigned char *dest,
               unsigned long *destlen,
               const unsigned char *source,
               unsigned long sourcelen,
-              int print_level)
+              cJSON* json)
 {
     int ret;
     unsigned gzip_header_size;
@@ -441,11 +337,12 @@ int gzip_dump(unsigned char *dest,
     unsigned source_skip_header_size;
 
     unsigned long decompressed_len;
+    int print_level = 0;
 
-    print_log_to_both("%s{\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"GZIP_FORMAT\": {\n", print_level_tabel[print_level + 1]);
+    cJSON *gzip_format_json = cJSON_AddObjectToObject(json, "GZIP_FORMAT");
+    cJSON *gzip_header_json = cJSON_AddObjectToObject(gzip_format_json, "GZIP_HEADER");
 
-    ret = decode_gzip_header(source, print_level + 2);
+    ret = decode_gzip_header(source, gzip_header_json);
     if (ret < 0) {
         return -1;
     } else {
@@ -562,9 +459,14 @@ int main(int argc, char **argv)
     }
 
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
+    compressed_data_json = cJSON_CreateObject();
 
-    ret = gzip_dump(NIL, &destlen, source, len, 0);
+    ret = gzip_dump(NIL, &destlen, source, len, compressed_data_json);
 
+    char* jsonString = cJSON_Print(compressed_data_json);
+    printf("%s", jsonString);
+    cJSON_free(jsonString);
+    cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
 
