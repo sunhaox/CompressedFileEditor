@@ -86,111 +86,81 @@ local void *load(const char *name, size_t *len)
     return buf;
 }
 
-local int decode_zlib_header(const unsigned char *source, int print_level)
+local int decode_zlib_header(const unsigned char *source, cJSON* json)
 {
     unsigned char cmf, comp_method, comp_info;
     unsigned char flags, check_bits, preset_dictionary, compression_level;
+    unsigned char str[100];
+    
     if (!source)
         return -1;
 
     cmf = source[0];
     comp_method = cmf & 0xF;
     comp_info = (cmf >> 4) & 0xF;
-    print_log_to_both("%s\"ZLIB_HEADER\": {\n",
-        print_level_tabel[print_level]);
-    print_log_to_both("%s\"COMPRESSION_METHOD\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 4,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 2], comp_method);
+
+    cJSON* compression_method_json = cJSON_AddObjectToObject(json, "COMPRESSION_METHOD");
+    cJSON_AddNumberToObject(compression_method_json, "bit_size", 4);
+    cJSON_AddNumberToObject(compression_method_json, "value", comp_method);
     if (comp_method == 8) {
-        print_log_to_both("%s\"description\": \"DEFLATE\"\n",
-        print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(compression_method_json, "description", "DEFLATE");
     } else if (comp_method == 15) {
-        print_log_to_both("%s\"description\": \"Reserved\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(compression_method_json, "description", "Reserved");
         fprintf(stderr, "zlib header decode failed!\n");
         return -1;
     } else {
-        print_log_to_both("%s\"description\": \"Invalid\"\n",
-            print_level_tabel[print_level + 2]);
+        cJSON_AddStringToObject(compression_method_json, "description", "Invalid");
         fprintf(stderr, "zlib header decode failed!\n");
         return -1;
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
 
-    print_log_to_both("%s\"COMPRESSION_INFO\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 4,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 2], comp_info);
+    cJSON* compression_info_json = cJSON_AddObjectToObject(json, "COMPRESSION_INFO");
+    cJSON_AddNumberToObject(compression_info_json, "bit_size", 4);
+    cJSON_AddNumberToObject(compression_info_json, "value", comp_info);
     if (comp_info != 7) {
         fprintf(stderr, "zlib header decode failed!\n");
         return -1;
     }
-    print_log_to_both("%s\"description\": \"Window size: %d Bytes\"\n",
-        print_level_tabel[print_level + 2], 1 << (comp_info + 8));
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
+    sprintf(str, "Window size: %d Bytes", 1 << (comp_info + 8));
+    cJSON_AddStringToObject(compression_info_json, "description", str);
 
     flags = source[1];
     check_bits = flags & 0x1F;
     preset_dictionary = (flags >> 5) & 0x1;
     compression_level = (flags >> 6) & 0x3;
 
-    print_log_to_both("%s\"FLAGS\": {\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"FCHECK\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 5,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], check_bits);
+    cJSON* flags_json = cJSON_AddObjectToObject(json, "FLAGS");
+
+    cJSON* fcheck_json = cJSON_AddObjectToObject(flags_json, "FCHECK");
+    cJSON_AddNumberToObject(fcheck_json, "bit_size", 5);
+    cJSON_AddNumberToObject(fcheck_json, "value", check_bits);
     if ((cmf * 256 + flags) % 31 != 0) {
-        print_log_to_both("%s\"description\": \"check failed\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fcheck_json, "description", "check failed");
     } else {
-        print_log_to_both("%s\"description\": \"check success\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fcheck_json, "description", "check success");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"FDICT\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], preset_dictionary);
-
+    cJSON* fdict_json = cJSON_AddObjectToObject(flags_json, "FDICT");
+    cJSON_AddNumberToObject(fdict_json, "bit_size", 1);
+    cJSON_AddNumberToObject(fdict_json, "value", preset_dictionary);
     if (preset_dictionary) {
-        print_log_to_both("%s\"description\": \"dictionary preset\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fdict_json, "description", "dictionary preset");
     } else {
-        print_log_to_both("%s\"description\": \"dictionary not preset\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(fdict_json, "description", "dictionary not preset");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
-    print_log_to_both("%s\"FLEVEL\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 2,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 3], compression_level);
-
+    cJSON* flevel_json = cJSON_AddObjectToObject(flags_json, "FLEVEL");
+    cJSON_AddNumberToObject(flevel_json, "bit_size", 2);
+    cJSON_AddNumberToObject(flevel_json, "value", compression_level);
     if (compression_level == 0) {
-        print_log_to_both("%s\"description\": \"fastest\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(flevel_json, "description", "fastest");
     } else if (compression_level == 1) {
-        print_log_to_both("%s\"description\": \"fast\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(flevel_json, "description", "fast");
     } else if (compression_level == 2) {
-        print_log_to_both("%s\"description\": \"default\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(flevel_json, "description", "default");
     } else if (compression_level == 3) {
-        print_log_to_both("%s\"description\": \"maximum compression, slowest\"\n",
-            print_level_tabel[print_level + 3]);
+        cJSON_AddStringToObject(flevel_json, "description", "maximum compression, slowest");
     }
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
     return 0;
 }
 
@@ -198,7 +168,7 @@ int zlib_dump(unsigned char *dest,
               unsigned long *destlen,
               const unsigned char *source,
               unsigned long sourcelen,
-              int print_level)
+              cJSON* json)
 {
     int ret;
     unsigned zlib_header_size = 2;
@@ -206,11 +176,12 @@ int zlib_dump(unsigned char *dest,
     unsigned source_skip_header_size = sourcelen - zlib_header_size;
 
     unsigned long decompressed_len = source_skip_header_size;
+    int print_level = 0;
 
-    print_log_to_both("%s{\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"ZLIB_FORMAT\": {\n", print_level_tabel[print_level + 1]);
+    cJSON* zlib_format_json = cJSON_AddObjectToObject(json, "ZLIB_FORMAT");
+    cJSON* zlib_header_json = cJSON_AddObjectToObject(zlib_format_json, "ZLIB_HEADER");
 
-    if (decode_zlib_header(source, print_level + 2)) {
+    if (decode_zlib_header(source, zlib_header_json)) {
         return -1;
     }
 
@@ -313,9 +284,14 @@ int main(int argc, char **argv)
     }
 
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
+    compressed_data_json = cJSON_CreateObject();
 
-    ret = zlib_dump(NIL, &destlen, source, len, 0);
+    ret = zlib_dump(NIL, &destlen, source, len, compressed_data_json);
 
+    char* jsonString = cJSON_Print(compressed_data_json);
+    printf("%s", jsonString);
+    cJSON_free(jsonString);
+    cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
 
