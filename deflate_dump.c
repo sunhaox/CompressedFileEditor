@@ -152,7 +152,8 @@ int main(int argc, char **argv)
     sourcelen = (unsigned long)len;
 
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
-    print_to_compressed_log("%s{\n", print_level_tabel[print_level]);
+    compressed_data_json = cJSON_CreateObject();
+
     ret = puff(NIL, &destlen, source + skip, &sourcelen, print_level + 1);
     if (ret)
         fprintf(stderr, "puff() failed with return code %d\n", ret);
@@ -162,8 +163,12 @@ int main(int argc, char **argv)
                                      len - sourcelen);
     }
 
-    print_to_compressed_log("%s\"JSON_END\": 0\n", print_level_tabel[print_level + 1]);
-    print_to_compressed_log("%s}\n", print_level_tabel[print_level]);
+    cJSON_AddNumberToObject(compressed_data_json, "JSON_END", 0);
+
+    char* jsonString = cJSON_Print(compressed_data_json);
+    printf("%s", jsonString);
+    cJSON_free(jsonString);
+    cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
 
