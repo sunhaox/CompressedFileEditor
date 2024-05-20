@@ -166,11 +166,14 @@ int main(int argc, char **argv)
     cJSON_AddNumberToObject(compressed_data_json, "JSON_END", 0);
 
     char* jsonString = cJSON_Print(compressed_data_json);
-    printf("%s", jsonString);
+    if (compressed_data_log_file) {
+        fprintf(compressed_data_log_file, "%s", jsonString);
+    }
     cJSON_free(jsonString);
     cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
+    compressed_data_json = NULL;
 
     /* if requested, inflate again and write decompressed data to stdout */
     if (put && ret == 0) {
@@ -181,19 +184,23 @@ int main(int argc, char **argv)
 
         }
         decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
-        print_to_decompressed_log("%s{\n", print_level_tabel[print_level]);
-        puff(dest, &destlen, source + skip, &sourcelen, compressed_data_json);
+        decompressed_data_json = cJSON_CreateObject();
+        puff(dest, &destlen, source + skip, &sourcelen, decompressed_data_json);
 
-        print_to_decompressed_log("%s\"CHECKSUM_CALCULATED\": {\n", print_level_tabel[print_level + 1]);
-        print_to_decompressed_log("%s\"value\": [\n", print_level_tabel[print_level + 2]);
+        cJSON* checksum_calculated_json = cJSON_AddObjectToObject(decompressed_data_json, "CHECKSUM_CALCULATED");
         adler32_checksum = swap_uint32(adler32_checksum);
-        print_hex_with_buffer((unsigned char *)&adler32_checksum, 4, print_level + 3);
-        print_to_decompressed_log("%s],\n", print_level_tabel[print_level + 2]);
-        print_to_decompressed_log("%s\"description\": \"Adler-32 Checksum Calculated\"\n", print_level_tabel[print_level + 2]);
-        print_to_decompressed_log("%s}\n", print_level_tabel[print_level + 1]);
-        print_to_decompressed_log("%s}\n", print_level_tabel[print_level]);
+        dump_data_to_json(decompressed_data_json, "value", (unsigned char*)&adler32_checksum, 4);
+        cJSON_AddStringToObject(checksum_calculated_json, "description", "Adler-32 Checksum Calculated");
+
+        char* jsonString = cJSON_Print(decompressed_data_json);
+        if (decompressed_data_log_file) {
+            fprintf(decompressed_data_log_file, "%s", jsonString);
+        }
+        cJSON_free(jsonString);
+        cJSON_Delete(decompressed_data_json);
         fclose(decompressed_data_log_file);
         decompressed_data_log_file = NULL;
+        decompressed_data_json = NULL;
 
         if (wr_file) {
             decompressed_data_file = fopen(decompressed_file_name, "wb");
