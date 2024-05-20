@@ -22,14 +22,13 @@ extern unsigned int adler32_checksum;
 void print_to_compressed_log(char *fmt, ...);
 void print_to_decompressed_log(char *fmt, ...);
 
-void print_compressed_data_hex(int data_val, int print_level);
+void print_compressed_data_hex(int data_val, cJSON* json);
 void print_compressed_data_dec(int data_val, int print_level);
 
-void print_decompressed_data_hex(int data_val, int print_level);
-void print_compressed_data_final(int print_level);
-void print_decompressed_data_final(int print_level);
+void print_decompressed_data_hex(int data_val, cJSON* json);
 
 void dump_data_to_json(cJSON* json, const char *const name, unsigned char *buffer, unsigned int num);
+void addStringToObjectFormatted(cJSON* json, const char *const name, const char *const format, ...);
 void print_log_to_both(char *fmt, ...);
 void print_hex_with_buffer(unsigned char *buffer, unsigned int num, int print_level);
 

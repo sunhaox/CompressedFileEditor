@@ -154,7 +154,7 @@ int main(int argc, char **argv)
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
     compressed_data_json = cJSON_CreateObject();
 
-    ret = puff(NIL, &destlen, source + skip, &sourcelen, print_level + 1);
+    ret = puff(NIL, &destlen, source + skip, &sourcelen, compressed_data_json);
     if (ret)
         fprintf(stderr, "puff() failed with return code %d\n", ret);
     else {
@@ -182,7 +182,7 @@ int main(int argc, char **argv)
         }
         decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
         print_to_decompressed_log("%s{\n", print_level_tabel[print_level]);
-        puff(dest, &destlen, source + skip, &sourcelen, print_level + 1);
+        puff(dest, &destlen, source + skip, &sourcelen, compressed_data_json);
 
         print_to_decompressed_log("%s\"CHECKSUM_CALCULATED\": {\n", print_level_tabel[print_level + 1]);
         print_to_decompressed_log("%s\"value\": [\n", print_level_tabel[print_level + 2]);

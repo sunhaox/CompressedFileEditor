@@ -173,25 +173,21 @@ local int get_output_byte_position(struct state *s)
  * - A stored block can have zero length.  This is sometimes used to byte-align
  *   subsets of the compressed data for random access or partial recovery.
  */
-local int stored(struct state *s, int print_level)
+local int stored(struct state *s, cJSON* json)
 {
     unsigned len;       /* length of stored block */
     unsigned nlen;       /* length of one's complement */
     unsigned char data_val;
 
-    print_log_to_both("%s\"BTYPE\": {\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": 0,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"description\": \"no compression (aka Stored Block)\"\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* btype_json = cJSON_AddObjectToObject(json, "BTYPE");
+    cJSON_AddNumberToObject(btype_json, "bit_size", 2);
+    cJSON_AddNumberToObject(btype_json, "value", 0);
+    cJSON_AddStringToObject(btype_json, "description", "no compression (aka Stored Block)");
 
-    print_log_to_both("%s\"RESERVED\": {\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 1], s->bitcnt);
-    print_log_to_both("%s\"value\": 0,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"description\": \"reserved bits for byte align\"\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* reserved_json = cJSON_AddObjectToObject(json, "RESERVED");
+    cJSON_AddNumberToObject(reserved_json, "bit_size", s->bitcnt);
+    cJSON_AddNumberToObject(reserved_json, "value", 0);
+    cJSON_AddStringToObject(reserved_json, "description", "reserved bits for byte align");
 
     /* discard leftover bits from current byte (assumes s->bitcnt < 8) */
     s->bitbuf = 0;
@@ -220,46 +216,36 @@ local int stored(struct state *s, int print_level)
         return 2;                               /* not enough input */
     }
 
-    print_log_to_both("%s\"LEN\": {\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 16,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": %d,\n", print_level_tabel[print_level + 1], len);
-    print_log_to_both("%s\"description\": \"uncompressed data length (bytes)\"\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* len_json = cJSON_AddObjectToObject(json, "LEN");
+    cJSON_AddNumberToObject(len_json, "bit_size", 16);
+    cJSON_AddNumberToObject(len_json, "value", len);
+    cJSON_AddStringToObject(len_json, "description", "uncompressed data length (bytes)");
 
-    print_log_to_both("%s\"NLEN\": {\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 16,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": %d,\n", print_level_tabel[print_level + 1], nlen);
-    print_log_to_both("%s\"description\": \"complement of LEN (65535 - %d)\"\n",
-        print_level_tabel[print_level + 1], len);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* nlen_json = cJSON_AddObjectToObject(json, "NLEN");
+    cJSON_AddNumberToObject(nlen_json, "bit_size", 16);
+    cJSON_AddNumberToObject(nlen_json, "value", nlen);
+    addStringToObjectFormatted(nlen_json, "description", "complement of LEN (65535 - %d)", len);
 
+    cJSON* raw_data_json = NULL;
     if (print_data_verbose) {
-        print_log_to_both("%s\"RAW_DATA\": [\n", print_level_tabel[print_level]);
+        raw_data_json = cJSON_AddArrayToObject(json, "RAW_DATA");
     }
 
     while (len--) {
         data_val = s->in[s->incnt++];
-        print_compressed_data_hex(data_val, print_level + 1);
+        print_compressed_data_hex(data_val, raw_data_json);
 
         if (s->out != NIL) {
             if (s->outcnt + len > s->outlen) {
                 fprintf(stderr, "not enough output space!\n");
                 return 1;                      /* not enough output space */
             }
-            print_decompressed_data_hex(data_val, print_level + 1);
+            print_decompressed_data_hex(data_val, raw_data_json);
             adler32(data_val);
             s->out[s->outcnt++] = data_val;
         } else {
             s->outcnt ++;
         }
-    }
-
-    print_compressed_data_final(print_level + 1);
-    print_decompressed_data_final(print_level + 1);
-
-    if (print_data_verbose) {
-        print_log_to_both("%s],\n", print_level_tabel[print_level]);
     }
 
     /* done with a valid stored block */
@@ -472,7 +458,7 @@ local int get_encoded_val_from_huffman_table(const struct huffman *h, int symbol
  * - Within a given code length, the symbols are kept in ascending order for
  *   the code bits definition.
  */
-local int construct(struct huffman *h, const short *length, int n, int print_level)
+local int construct(struct huffman *h, const short *length, int n, cJSON* json)
 {
     int symbol;         /* current symbol when stepping through length[] */
     int len;            /* current length when stepping through h->count[] */
@@ -498,12 +484,11 @@ local int construct(struct huffman *h, const short *length, int n, int print_lev
         fprintf(stderr, "construct huffman table error: No symbol encoded!\n");
         return 0;                       /* complete, but decode() will fail */
     } else {
-        print_to_compressed_log("%s\"total_symbol_num\": %d,\n",
-            print_level_tabel[print_level], n);
-        print_to_compressed_log("%s\"encoded_symbol_num\": %d,\n",
-            print_level_tabel[print_level], encoded_symbol_num);
-        print_to_compressed_log("%s\"not_used_symbol_num\": %d\n",
-            print_level_tabel[print_level], h->count[0]);
+        if (compressed_data_log_file) {
+            cJSON_AddNumberToObject(json, "total_symbol_num", n);
+            cJSON_AddNumberToObject(json, "encoded_symbol_num", encoded_symbol_num);
+            cJSON_AddNumberToObject(json, "not_used_symbol_num", h->count[0]);
+        }
     }
 
     /* check for an over-subscribed or incomplete set of lengths */
@@ -530,9 +515,9 @@ local int construct(struct huffman *h, const short *length, int n, int print_lev
         if (length[symbol] != 0)
             h->symbol[offs[length[symbol]]++] = symbol;
 
-    if (print_data_verbose) {
-        print_to_compressed_log("%s\"items\": [\n",
-            print_level_tabel[print_level]);
+    cJSON* items_json = NULL;
+    if (print_data_verbose && compressed_data_log_file) {
+        items_json = cJSON_AddArrayToObject(json, "items");
     }
 
     for (i = 0; i < encoded_symbol_num; i++) {
@@ -543,32 +528,20 @@ local int construct(struct huffman *h, const short *length, int n, int print_lev
                 (encoded_huffman_code >> (length[h->symbol[i]] -1 - j)) & 0x1);
         }
 
-        if (print_data_verbose) {
-            print_to_compressed_log("%s{\n", print_level_tabel[print_level + 1]);
-            print_to_compressed_log("%s\"index\": %d,\n",
-                print_level_tabel[print_level + 2], i);
-            print_to_compressed_log("%s\"symbol_value\": %d,\n",
-                print_level_tabel[print_level + 2], h->symbol[i]);
-            print_to_compressed_log("%s\"encoded_value\": %d,\n",
-                print_level_tabel[print_level + 2], encoded_huffman_code);
-            print_to_compressed_log("%s\"encoded_bit_size\": %d,\n",
-                print_level_tabel[print_level + 2], length[h->symbol[i]]);
-            print_to_compressed_log("%s\"description\": \"symbol %d encoded to %d (b'%s)\"\n",
-                print_level_tabel[print_level + 2],
+        if (print_data_verbose && compressed_data_log_file) {
+            cJSON* item_json = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item_json, "index", i);
+            cJSON_AddNumberToObject(item_json, "symbol_value", h->symbol[1]);
+            cJSON_AddNumberToObject(item_json, "encoded_value", encoded_huffman_code);
+            cJSON_AddNumberToObject(item_json, "encoded_bit_size", length[h->symbol[i]]);
+            addStringToObjectFormatted(item_json, "description", "symbol %d encoded to %d (b'%s)", 
                 h->symbol[i], encoded_huffman_code, encoded_huffman_code_bit_str);
-            if (i == encoded_symbol_num - 1)
-                print_to_compressed_log("%s}\n", print_level_tabel[print_level + 1]);
-            else
-                print_to_compressed_log("%s},\n", print_level_tabel[print_level + 1]);
+            cJSON_AddItemToArray(items_json, item_json);
         }
 
         memset(encoded_huffman_code_bit_str, 0, print_count);
         print_count = 0;
 
-    }
-
-    if (print_data_verbose) {
-        print_to_compressed_log("%s]\n", print_level_tabel[print_level]);
     }
 
     /* return zero for complete set, positive for incomplete set */
@@ -633,7 +606,7 @@ local int construct(struct huffman *h, const short *length, int n, int print_lev
 local int codes(struct state *s,
                 const struct huffman *lencode,
                 const struct huffman *distcode,
-                int print_level)
+                cJSON* json)
 {
     int symbol;         /* decoded symbol */
     int len;            /* length for copy */
@@ -673,11 +646,15 @@ local int codes(struct state *s,
         7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
         12, 12, 13, 13};
 
+    cJSON* data_json = NULL;
     if (print_data_verbose) {
-        print_to_compressed_log("%s\"ENCODED_BIT_STREAM\": [\n",
-            print_level_tabel[print_level]);
-        print_to_decompressed_log("%s\"DECOMPRESSED_DATA\": [\n",
-            print_level_tabel[print_level]);
+        if (compressed_data_log_file) {
+            data_json = cJSON_AddArrayToObject(json, "ENCODED_BIT_STREAM");
+        }
+        else if (decompressed_data_log_file)
+        {
+            data_json = cJSON_AddArrayToObject(json, "DECOMPRESSED_DATA");
+        }
     }
 
     /* decode literals and length/distance pairs */
@@ -691,19 +668,19 @@ local int codes(struct state *s,
             leteral_symbol_total_bits +=
                 get_symbol_length_from_huffman_table(lencode, symbol);
             decoded_leteral_symbol_total_bits += 8;
-            print_compressed_data_hex(symbol, print_level + 1);
+            print_compressed_data_hex(symbol, data_json);
             /* write out the literal */
             if (s->out != NIL) {
                 if (s->outcnt == s->outlen)
                     return 1;
                 s->out[s->outcnt] = symbol;
-                print_decompressed_data_hex(symbol, print_level + 1);
+                print_decompressed_data_hex(symbol, data_json);
                 adler32(symbol);
             }
             s->outcnt++;
         }
         else if (symbol > 256) {        /* length */
-            print_compressed_data_dec(symbol, print_level + 1);
+            print_compressed_data_hex(symbol, data_json);
             length_symbol_count++;
             distance_symbol_count++;
             length_symbol_total_bits +=
@@ -713,7 +690,7 @@ local int codes(struct state *s,
             if (symbol >= 29)
                 return -10;             /* invalid fixed code */
             len_extra = bits(s, lext[symbol]);
-            print_compressed_data_dec(len_extra, print_level + 1);
+            print_compressed_data_hex(len_extra, data_json);
             len = lens[symbol] + len_extra;
             length_symbol_total_bits += lext[symbol];
 
@@ -721,13 +698,13 @@ local int codes(struct state *s,
             symbol = decode(s, distcode);
             if (symbol < 0)
                 return symbol;          /* invalid symbol */
-            print_compressed_data_dec(symbol, print_level + 1);
+            print_compressed_data_hex(symbol, data_json);
 
             distance_symbol_total_bits +=
                 get_symbol_length_from_huffman_table(distcode, symbol);
 
             dist_extra = bits(s, dext[symbol]);
-            print_compressed_data_dec(dist_extra, print_level + 1);
+            print_compressed_data_hex(dist_extra, data_json);
             dist = dists[symbol] + dist_extra;
 #ifndef INFLATE_ALLOW_INVALID_DISTANCE_TOOFAR_ARRR
             if (dist > s->outcnt) {
@@ -750,7 +727,7 @@ local int codes(struct state *s,
 #endif
                             s->out[s->outcnt - dist];
                     print_decompressed_data_hex(s->out[s->outcnt - dist],
-                        print_level + 1);
+                        data_json);
                     adler32(s->out[s->outcnt - dist]);
                     s->outcnt++;
                 }
@@ -764,15 +741,7 @@ local int codes(struct state *s,
     leteral_symbol_total_bits +=
         get_symbol_length_from_huffman_table(lencode, 256);
 
-    print_compressed_data_dec(symbol, print_level + 1);
-
-    print_compressed_data_final(print_level + 1);
-    print_decompressed_data_final(print_level + 1);
-
-    if (print_data_verbose) {
-        print_to_compressed_log("%s],\n", print_level_tabel[print_level]);
-        print_to_decompressed_log("%s],\n", print_level_tabel[print_level]);
-    }
+    print_compressed_data_hex(symbol, data_json);
 
     encoded_stream_total_bits = leteral_symbol_total_bits +
         length_symbol_total_bits +
@@ -781,42 +750,33 @@ local int codes(struct state *s,
     encoded_symbol_total_count = leteral_symbol_count +
         length_symbol_count +
         distance_symbol_count;
-
-    print_to_compressed_log("%s\"leteral_huffman_symbol_count\": %d,\n",
-        print_level_tabel[print_level], leteral_symbol_count);
-    print_to_compressed_log("%s\"length_huffman_symbol_count\": %d,\n",
-        print_level_tabel[print_level], length_symbol_count);
-    print_to_compressed_log("%s\"distance_huffman_symbol_count\": %d,\n",
-        print_level_tabel[print_level], distance_symbol_count);
-    print_to_compressed_log("%s\"encoded_symbol_total_count\": %d,\n",
-        print_level_tabel[print_level], encoded_symbol_total_count);
-    print_to_compressed_log("%s\"decoded_leteral_total_count\": %d,\n",
-        print_level_tabel[print_level], decoded_leteral_symbol_total_bits >> 3);
-
-    print_to_compressed_log("%s\"leteral_huffman_symbol_bits\": %d,\n",
-        print_level_tabel[print_level], leteral_symbol_total_bits);
-    print_to_compressed_log("%s\"length_symbol_bits\": %d,\n",
-        print_level_tabel[print_level], length_symbol_total_bits);
-    print_to_compressed_log("%s\"distance_symbol_bits\": %d,\n",
-        print_level_tabel[print_level], distance_symbol_total_bits);
-    print_to_compressed_log("%s\"encoded_symbol_total_bits\": %d,\n",
-        print_level_tabel[print_level], encoded_stream_total_bits);
-    print_to_compressed_log("%s\"decoded_leteral_total_bits\": %d,\n",
-        print_level_tabel[print_level], decoded_leteral_symbol_total_bits);
+    
+    if (compressed_data_log_file) {
+        cJSON_AddNumberToObject(json, "leteral_huffman_symbol_count", leteral_symbol_count);
+        cJSON_AddNumberToObject(json, "length_huffman_symbol_count", length_symbol_count);
+        cJSON_AddNumberToObject(json, "distance_huffman_symbol_count", distance_symbol_count);
+        cJSON_AddNumberToObject(json, "encoded_symbol_total_count", encoded_symbol_total_count);
+        cJSON_AddNumberToObject(json, "decoded_leteral_total_count", decoded_leteral_symbol_total_bits >> 3);
+        cJSON_AddNumberToObject(json, "leteral_huffman_symbol_bits", leteral_symbol_total_bits);
+        cJSON_AddNumberToObject(json, "length_symbol_bits", length_symbol_total_bits);
+        cJSON_AddNumberToObject(json, "distance_symbol_bits", distance_symbol_total_bits);
+        cJSON_AddNumberToObject(json, "encoded_symbol_total_bits", encoded_stream_total_bits);
+        cJSON_AddNumberToObject(json, "decoded_leteral_total_bits", decoded_leteral_symbol_total_bits);
+    }
 
     if (encoded_stream_total_bits == 1)
         return 0;
 
     if (encoded_stream_total_bits != 0) {
-        print_to_compressed_log("%s\"compression_ratio\": %f,\n",
-            print_level_tabel[print_level],
-            (float)decoded_leteral_symbol_total_bits/encoded_stream_total_bits);
+        if (compressed_data_log_file) {
+            cJSON_AddNumberToObject(json, "compression_ratio", (float)decoded_leteral_symbol_total_bits/encoded_stream_total_bits);
+        }
     }
 
     if (decoded_leteral_symbol_total_bits != 0) {
-        print_to_compressed_log("%s\"space_saving\": %f,\n",
-            print_level_tabel[print_level],
-            1 - (float)encoded_stream_total_bits/decoded_leteral_symbol_total_bits);
+        if (compressed_data_log_file) {
+            cJSON_AddNumberToObject(json, "space_saving", 1 - (float)encoded_stream_total_bits/decoded_leteral_symbol_total_bits);
+        }
     }
 
     /* done with a valid fixed or dynamic block */
@@ -847,7 +807,7 @@ local int codes(struct state *s,
  *   length, this can be implemented as an incomplete code.  Then the invalid
  *   codes are detected while decoding.
  */
-local int fixed(struct state *s, int print_level)
+local int fixed(struct state *s, cJSON* json)
 {
     static int virgin = 1;
     static short lencnt[MAXBITS+1], lensym[FIXLCODES];
@@ -858,12 +818,10 @@ local int fixed(struct state *s, int print_level)
     int bit_position_end = get_input_bit_position(s);
     int ret = 0;
 
-    print_log_to_both("%s\"BTYPE\": {\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": 1,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"description\": \"compressed with fixed Huffman codes\"\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* btype_json = cJSON_AddObjectToObject(json, "BTYPE");
+    cJSON_AddNumberToObject(btype_json, "bit_size", 2);
+    cJSON_AddNumberToObject(btype_json, "value", 1);
+    cJSON_AddStringToObject(btype_json, "description", "compressed with fixed Huffman codes");
 
     /* build fixed huffman tables if first call (may not be thread safe) */
     if (virgin) {
@@ -886,27 +844,31 @@ local int fixed(struct state *s, int print_level)
         for (; symbol < FIXLCODES; symbol++)
             lengths[symbol] = 8;
 
-        print_to_compressed_log("%s\"extracted_literal_length_huffman_table\": {\n", print_level_tabel[print_level]);
-        construct(&lencode, lengths, FIXLCODES, print_level + 1);
-        print_to_compressed_log("%s},\n", print_level_tabel[print_level]);
+        cJSON* extracted_literal_length_huffman_table_json = NULL;
+        if (compressed_data_log_file) {
+            extracted_literal_length_huffman_table_json = cJSON_AddObjectToObject(json, "cJSON* extracted_literal_length_huffman_table");
+        }
+        construct(&lencode, lengths, FIXLCODES, extracted_literal_length_huffman_table_json);
         /* distance table */
         for (symbol = 0; symbol < MAXDCODES; symbol++)
             lengths[symbol] = 5;
 
-        print_to_compressed_log("%s\"extracted_distance_huffman_table\": {\n", print_level_tabel[print_level]);
-        construct(&distcode, lengths, MAXDCODES, print_level + 1);
-        print_to_compressed_log("%s},\n", print_level_tabel[print_level]);
+        cJSON* extracted_distance_huffman_table_json = NULL;
+        if (compressed_data_log_file) {
+            extracted_distance_huffman_table_json = cJSON_AddObjectToObject(json, "extracted_distance_huffman_table");
+        }
+        construct(&distcode, lengths, MAXDCODES, extracted_distance_huffman_table_json);
         /* do this just once */
         virgin = 0;
     }
 
     /* decode data until end-of-block code */
-    ret = codes(s, &lencode, &distcode, print_level);
+    ret = codes(s, &lencode, &distcode, json);
     bit_position_end = get_input_bit_position(s);
     decompressed_bytes_size = s->outcnt - decompressed_bytes_size;
-    print_to_decompressed_log("%s\"DECOMPRESSED_BYTES\": %d,\n",
-        print_level_tabel[print_level],
-        decompressed_bytes_size);
+    if (decompressed_data_log_file) {
+        cJSON_AddNumberToObject(json, "DECOMPRESSED_BYTES", decompressed_bytes_size);
+    }
 
     return ret;
 }
@@ -998,7 +960,7 @@ local int fixed(struct state *s, int print_level)
  * - For reference, a "typical" size for the code description in a dynamic
  *   block is around 80 bytes.
  */
-local int dynamic(struct state *s, int print_level)
+local int dynamic(struct state *s, cJSON* json)
 {
     int nlen, ndist, ncode;             /* number of lengths in descriptor */
     int index, i;                          /* index of lengths[] */
@@ -1029,120 +991,85 @@ local int dynamic(struct state *s, int print_level)
     if (nlen > MAXLCODES || ndist > MAXDCODES)
         return -3;                      /* bad counts */
 
-    print_log_to_both("%s\"BTYPE\": {\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": 2,\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"description\": \"compressed with dynamic Huffman codes\"\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* btype_json = cJSON_AddObjectToObject(json, "BTYPE");
+    cJSON_AddNumberToObject(btype_json, "bit_size", 2);
+    cJSON_AddNumberToObject(btype_json, "value", 2);
+    cJSON_AddStringToObject(btype_json, "description", "compressed with dynamic Huffman codes");
 
-    print_log_to_both("%s\"HLIT\": {\n",
-        print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 5,\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 1], nlen - 257);
-    print_log_to_both("%s\"decoded_value\": %d,\n",
-        print_level_tabel[print_level + 1], nlen);
-    print_log_to_both("%s\"description\": \"%d (%d + 257) of Literal/Length codes encoded\"\n",
-        print_level_tabel[print_level + 1], nlen, nlen - 257);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* hlit_json = cJSON_AddObjectToObject(json, "HLIT");
+    cJSON_AddNumberToObject(hlit_json, "bit_size", 5);
+    cJSON_AddNumberToObject(hlit_json, "value", nlen - 257);
+    cJSON_AddNumberToObject(hlit_json, "decoded_value", nlen);
+    addStringToObjectFormatted(hlit_json, "description", "%d (%d + 257) of Literal/Length codes encoded", nlen, nlen - 257);
 
-    print_log_to_both("%s\"HDIST\": {\n",
-        print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 5,\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 1], ndist - 1);
-    print_log_to_both("%s\"decoded_value\": %d,\n",
-        print_level_tabel[print_level + 1], ndist);
-    print_log_to_both("%s\"description\": \"%d (%d + 1) of Distance codes encoded\"\n",
-        print_level_tabel[print_level + 1], ndist, ndist - 1);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* hdist_json = cJSON_AddObjectToObject(json, "HDIST");
+    cJSON_AddNumberToObject(hdist_json, "bit_size", 5);
+    cJSON_AddNumberToObject(hdist_json, "value", ndist - 1);
+    cJSON_AddNumberToObject(hdist_json, "decoded_value", ndist);
+    addStringToObjectFormatted(hdist_json, "description", "%d (%d + 1) of Distance codes encoded", ndist, ndist - 1);
 
-    print_log_to_both("%s\"HCLEN\": {\n",
-        print_level_tabel[print_level]);
-    print_log_to_both("%s\"bit_size\": 4,\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 1], ncode - 4);
-    print_log_to_both("%s\"decoded_value\": %d,\n",
-        print_level_tabel[print_level + 1], ncode);
-    print_log_to_both("%s\"description\": \"%d (%d + 4) of Code Length codes stored in CODE_LENGTH_TABLE\"\n",
-        print_level_tabel[print_level + 1], ncode, ncode - 4);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* hclen_json = cJSON_AddObjectToObject(json, "HCLEN");
+    cJSON_AddNumberToObject(hclen_json, "bit_size", 4);
+    cJSON_AddNumberToObject(hclen_json, "value", ncode - 4);
+    cJSON_AddNumberToObject(hclen_json, "decoded_value", ncode);
+    addStringToObjectFormatted(hclen_json, "description", "%d (%d + 4) of Code Length codes stored in CODE_LENGTH_TABLE", ncode, ncode - 4);
 
-    if (print_data_verbose) {
-        print_to_compressed_log("%s\"CODE_LENGTH_TABLE\": [\n", print_level_tabel[print_level]);
+    cJSON* code_length_table_json = NULL;
+    if (print_data_verbose && compressed_data_log_file) {
+        code_length_table_json = cJSON_AddArrayToObject(json, "CODE_LENGTH_TABLE");
     }
 
     /* read code length code lengths (really), missing lengths are zero */
     for (index = 0; index < ncode; index++) {
         lengths[order[index]] = bits(s, 3);
-        if (print_data_verbose) {
-            print_to_compressed_log("%s{\n", print_level_tabel[print_level + 1]);
-            print_to_compressed_log("%s\"index\": %d,\n",
-                print_level_tabel[print_level + 2], index);
-            print_to_compressed_log("%s\"length\": %d,\n",
-                print_level_tabel[print_level + 2], order[index]);
-            print_to_compressed_log("%s\"bit_size\": 3,\n",
-                print_level_tabel[print_level + 2]);
-            print_to_compressed_log("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 2], lengths[order[index]]);
-            print_to_compressed_log("%s\"stored\": 1,\n", print_level_tabel[print_level + 2]);
+        if (print_data_verbose && compressed_data_log_file) {
+            cJSON* item_json = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item_json, "index", index);
+            cJSON_AddNumberToObject(item_json, "length", order[index]);
+            cJSON_AddNumberToObject(item_json, "bit_size", 3);
+            cJSON_AddNumberToObject(item_json, "value", lengths[order[index]]);
+            cJSON_AddNumberToObject(item_json, "stored", 1);
             if (lengths[order[index]] == 0) {
-                print_to_compressed_log("%s\"description\": \"code length stored but not used\"\n",
-                    print_level_tabel[print_level + 2]);
-
+                cJSON_AddStringToObject(item_json, "description", "code length stored but not used");
             } else {
-                print_to_compressed_log("%s\"description\": \"code length %d encoded to %d bits\"\n",
-                    print_level_tabel[print_level + 2], order[index], lengths[order[index]]);
+                addStringToObjectFormatted(item_json, "description", "code length %d encoded to %d bits", order[index], lengths[order[index]]);
             }
 
-            if (index == 18) {
-                print_to_compressed_log("%s}\n", print_level_tabel[print_level + 1]);
-            } else {
-                print_to_compressed_log("%s},\n", print_level_tabel[print_level + 1]);
-            }
+            cJSON_AddItemToArray(code_length_table_json, item_json);
         }
     }
     for (; index < 19; index++) {
         lengths[order[index]] = 0;
-        if (print_data_verbose) {
-            print_to_compressed_log("%s{\n", print_level_tabel[print_level + 1]);
-            print_to_compressed_log("%s\"index\": %d,\n", print_level_tabel[print_level + 2], index);
-            print_to_compressed_log("%s\"length\": %d,\n", print_level_tabel[print_level + 2], order[index]);
-            print_to_compressed_log("%s\"bit_size\": 3,\n", print_level_tabel[print_level + 2]);
-            print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 2], lengths[order[index]]);
-            print_to_compressed_log("%s\"stored\": 0,\n", print_level_tabel[print_level + 2]);
-            print_to_compressed_log("%s\"description\": \"code length not used\"\n", print_level_tabel[print_level + 2]);
-            if (index == 18) {
-                print_to_compressed_log("%s}\n", print_level_tabel[print_level + 1]);
-            } else {
-                print_to_compressed_log("%s},\n", print_level_tabel[print_level + 1]);
-            }
+        if (print_data_verbose && compressed_data_log_file) {
+            cJSON* item_json = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item_json, "index", index);
+            cJSON_AddNumberToObject(item_json, "length", order[index]);
+            cJSON_AddNumberToObject(item_json, "bit_size", 3);
+            cJSON_AddNumberToObject(item_json, "value", lengths[order[index]]);
+            cJSON_AddNumberToObject(item_json, "stored", 0);
+            cJSON_AddStringToObject(item_json, "description", "code length stored but not used");
+
+            cJSON_AddItemToArray(code_length_table_json, item_json);
         }
     }
 
-    if (print_data_verbose) {
-        print_to_compressed_log("%s],\n", print_level_tabel[print_level]);
+    cJSON_AddNumberToObject(json, "code_length_table_bits", ncode * 3);
+
+    cJSON* extracted_code_length_huffman_table_json = NULL;
+    if (compressed_data_log_file) {
+        extracted_code_length_huffman_table_json = cJSON_AddObjectToObject(json, "extracted_code_length_huffman_table");
     }
 
-    print_log_to_both("%s\"code_length_table_bits\": %d,\n", print_level_tabel[print_level], ncode * 3);
-
-    print_to_compressed_log("%s\"extracted_code_length_huffman_table\": {\n", print_level_tabel[print_level]);
-
     /* build huffman table for code lengths codes (use lencode temporarily) */
-    err = construct(&lencode, lengths, 19, print_level + 1);
+    err = construct(&lencode, lengths, 19, extracted_code_length_huffman_table_json);
     if (err != 0) {               /* require complete code set here */
         fprintf(stderr, "code lengths codes incomplete!\n");
         return -4;
     }
 
-    print_to_compressed_log("%s},\n", print_level_tabel[print_level]);
-
-    if (print_data_verbose) {
-        print_to_compressed_log("%s\"LITERAL_LENGTH_DISTANCE_TABLE\": [\n", print_level_tabel[print_level]);
+    cJSON* literal_length_distance_table_json = NULL;
+    if (print_data_verbose && compressed_data_log_file) {
+        literal_length_distance_table_json = cJSON_AddArrayToObject(json, "LITERAL_LENGTH_DISTANCE_TABLE");
     }
     bit_position_start = get_input_bit_position(s);
 
@@ -1163,27 +1090,22 @@ local int dynamic(struct state *s, int print_level)
         if (symbol < 0)
             return symbol;          /* invalid symbol */
 
-        if (print_data_verbose) {
-            print_to_compressed_log("%s{\n",
-                print_level_tabel[print_level + 1]);
-            print_to_compressed_log("%s\"symbol\": %d,\n",
-                print_level_tabel[print_level + 2], index);
-            print_to_compressed_log("%s\"bit_size\": %d,\n",
-                print_level_tabel[print_level + 2], symbol_size);
-            print_to_compressed_log("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 2], symbol_value);
-            print_to_compressed_log("%s\"decoded_value\": %d,\n",
-                print_level_tabel[print_level + 2], symbol);
+        cJSON* item_json = NULL;
+        if (print_data_verbose && compressed_data_log_file) {
+            // TODO add to array
+            item_json = cJSON_CreateObject();
+            cJSON_AddNumberToObject(item_json, "symbol", index);
+            cJSON_AddNumberToObject(item_json, "bit_size", symbol_size);
+            cJSON_AddNumberToObject(item_json, "value", symbol_value);
+            cJSON_AddNumberToObject(item_json, "decoded_value", symbol);
         }
 
         if (symbol < 16) {               /* length in 0..15 */
-            if (print_data_verbose) {
+            if (print_data_verbose && compressed_data_log_file) {
                 if (index < nlen)
-                    print_to_compressed_log("%s\"description\": \"literal_length symbol %d encoded to %d bits\"\n",
-                        print_level_tabel[print_level + 2], index, symbol);
+                    addStringToObjectFormatted(item_json, "description", "literal_length symbol %d encoded to %d bits", index, symbol);
                 else {
-                    print_to_compressed_log("%s\"description\": \"distance symbol %d encoded to %d bits\"\n",
-                        print_level_tabel[print_level + 2], index - nlen, symbol);
+                    addStringToObjectFormatted(item_json, "description", "distance symbol %d encoded to %d bits", index - nlen, symbol);
                 }
             }
             lengths[index++] = symbol;
@@ -1198,55 +1120,52 @@ local int dynamic(struct state *s, int print_level)
                 }
                 len = lengths[index - 1];       /* last length */
                 repeat_times = 3 + bits(s, 2);
-                if (print_data_verbose) {
-                    print_to_compressed_log("%s\"extra\": {\n", print_level_tabel[print_level + 2]);
-                    print_to_compressed_log("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 3], 2);
-                    print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 3);
-                    print_to_compressed_log("%s\"description\": \"repeat times %d (%d + 3)\"\n", print_level_tabel[print_level + 3], repeat_times, repeat_times - 3);
-                    print_to_compressed_log("%s},\n", print_level_tabel[print_level + 2]);
+                if (print_data_verbose && compressed_data_log_file) {
+                    cJSON* extra_json = cJSON_AddObjectToObject(item_json, "extra");
+                    cJSON_AddNumberToObject(extra_json, "bit_size", 2);
+                    cJSON_AddNumberToObject(extra_json, "value", repeat_times - 3);
+                    addStringToObjectFormatted(extra_json, "description", "repeat times %d (%d + 3)", repeat_times, repeat_times - 3);
 
                     if (index <= nlen)
-                        print_to_compressed_log("%s\"description\": \"literal_length symbol %d length code %d (repeat previous length code: %d for %d times)\"\n",
-                            print_level_tabel[print_level + 2], index, symbol, len, repeat_times);
+                        addStringToObjectFormatted(item_json,"description",  "literal_length symbol %d length code %d (repeat previous length code: %d for %d times)", 
+                            index, symbol, len, repeat_times);
                     else {
-                        print_to_compressed_log("%s\"description\": \"distance symbol %d length code %d (repeat previous length code: %d for %d times)\"\n",
-                            print_level_tabel[print_level + 2], index - nlen, symbol, len, repeat_times);
+                        addStringToObjectFormatted(item_json,"description",  "distance symbol %d length code %d (repeat previous length code: %d for %d times)",
+                            index - nlen, symbol, len, repeat_times);
                     }
                 }
             }
             else if (symbol == 17){      /* repeat zero 3..10 times */
                 repeat_times = 3 + bits(s, 3);
-                if (print_data_verbose) {
-                    print_to_compressed_log("%s\"extra\": {\n", print_level_tabel[print_level + 2]);
-                    print_to_compressed_log("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 3], 3);
-                    print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 3);
-                    print_to_compressed_log("%s\"description\": \"repeat times %d (%d + 3)\"\n", print_level_tabel[print_level + 3], repeat_times, repeat_times - 3);
-                    print_to_compressed_log("%s},\n", print_level_tabel[print_level + 2]);
+                if (print_data_verbose && compressed_data_log_file) {
+                    cJSON* extra_json = cJSON_AddObjectToObject(item_json, "extra");
+                    cJSON_AddNumberToObject(extra_json, "bit_size", 3);
+                    cJSON_AddNumberToObject(extra_json, "value", repeat_times - 3);
+                    addStringToObjectFormatted(extra_json,"description",  "repeat times %d (%d + 3)", repeat_times, repeat_times - 3);
 
                     if (index <= nlen)
-                        print_to_compressed_log("%s\"description\": \"literal_length symbol %d length code %d (repeat length code 0 for %d times)\"\n",
-                            print_level_tabel[print_level + 2], index, symbol, repeat_times);
+                        addStringToObjectFormatted(item_json,"description",  "literal_length symbol %d length code %d (repeat length code 0 for %d times)", 
+                            index, symbol, repeat_times);
                     else {
-                        print_to_compressed_log("%s\"description\": \"distance symbol %d length code %d (repeat length code 0 for %d times)\"\n",
-                            print_level_tabel[print_level + 2], index, symbol, repeat_times);
+                        addStringToObjectFormatted(item_json,"description",  "distance symbol %d length code %d (repeat length code 0 for %d times)",
+                            index, symbol, repeat_times);
                     }
                 }
             }
             else {                       /* == 18, repeat zero 11..138 times */
                 repeat_times = 11 + bits(s, 7);
-                if (print_data_verbose) {
-                    print_to_compressed_log("%s\"extra\": {\n", print_level_tabel[print_level + 2]);
-                    print_to_compressed_log("%s\"bit_size\": %d,\n", print_level_tabel[print_level + 3], 7);
-                    print_to_compressed_log("%s\"value\": %d,\n", print_level_tabel[print_level + 3], repeat_times - 11);
-                    print_to_compressed_log("%s\"description\": \"repeat times %d (%d + 11)\"\n", print_level_tabel[print_level + 3], repeat_times, repeat_times - 11);
-                    print_to_compressed_log("%s},\n", print_level_tabel[print_level + 2]);
+                if (print_data_verbose && compressed_data_log_file) {
+                    cJSON* extra_json = cJSON_AddObjectToObject(item_json, "extra");
+                    cJSON_AddNumberToObject(extra_json, "bit_size", 7);
+                    cJSON_AddNumberToObject(extra_json, "value", repeat_times - 11);
+                    addStringToObjectFormatted(extra_json, "description", "repeat times %d (%d + 11)", repeat_times, repeat_times - 11);
 
                     if (index <= nlen)
-                        print_to_compressed_log("%s\"description\": \"literal_length symbol %d length code %d (repeat length code 0 for %d times)\"\n",
-                            print_level_tabel[print_level + 2], index, symbol, repeat_times);
+                        addStringToObjectFormatted(item_json, "description", "literal_length symbol %d length code %d (repeat length code 0 for %d times)", 
+                            index, symbol, repeat_times);
                     else {
-                        print_to_compressed_log("%s\"description\": \"distance symbol %d length code %d (repeat length code 0 for %d times)\"\n",
-                            print_level_tabel[print_level + 2], index, symbol, repeat_times);
+                        addStringToObjectFormatted(item_json, "description", "distance symbol %d length code %d (repeat length code 0 for %d times)",
+                            index, symbol, repeat_times);
                     }
                 }
             }
@@ -1259,11 +1178,8 @@ local int dynamic(struct state *s, int print_level)
                 lengths[index++] = len;
         }
 
-        if (print_data_verbose) {
-            if (index == nlen + ndist)
-                print_to_compressed_log("%s}\n", print_level_tabel[print_level + 1]);
-            else
-                print_to_compressed_log("%s},\n", print_level_tabel[print_level + 1]);
+        if (print_data_verbose && compressed_data_log_file) {
+            cJSON_AddItemToArray(literal_length_distance_table_json, item_json);
         }
     }
 
@@ -1274,39 +1190,42 @@ local int dynamic(struct state *s, int print_level)
         fprintf(stderr, "missing end-of-block code!\n");
         return -9;
     }
-    if (print_data_verbose) {
-        print_to_compressed_log("%s],\n", print_level_tabel[print_level]);
+
+    cJSON_AddNumberToObject(json, "literal_length_distance_table_bits", bit_position_end - bit_position_start);
+
+    cJSON* extracted_literal_length_huffman_table_json = NULL;
+    if (compressed_data_log_file) {
+        extracted_literal_length_huffman_table_json = cJSON_AddObjectToObject(json, "extracted_literal_length_huffman_table");
     }
-
-    print_log_to_both("%s\"literal_length_distance_table_bits\": %d,\n", print_level_tabel[print_level], bit_position_end - bit_position_start);
-
-    print_to_compressed_log("%s\"extracted_literal_length_huffman_table\": {\n", print_level_tabel[print_level]);
+    
     /* build huffman table for literal/length codes */
-    err = construct(&lencode, lengths, nlen, print_level + 1);
+    err = construct(&lencode, lengths, nlen, extracted_literal_length_huffman_table_json);
     if (err && (err < 0 || nlen != lencode.count[0] + lencode.count[1])) {
         fprintf(stderr, "invalid literal/length code lengths!\n");
         return -7;      /* incomplete code ok only for single length 1 code */
     }
-    print_to_compressed_log("%s},\n", print_level_tabel[print_level]);
 
-    print_to_compressed_log("%s\"extracted_distance_huffman_table\": {\n", print_level_tabel[print_level]);
+    cJSON* extracted_distance_huffman_table_json = NULL;
+    if (compressed_data_log_file) {
+        extracted_distance_huffman_table_json = cJSON_AddObjectToObject(json, "extracted_distance_huffman_table");
+    }
     /* build huffman table for distance codes */
-    err = construct(&distcode, lengths + nlen, ndist, print_level + 1);
+    err = construct(&distcode, lengths + nlen, ndist, extracted_distance_huffman_table_json);
     if (err && (err < 0 || ndist != distcode.count[0] + distcode.count[1])) {
         fprintf(stderr, "invalid distance code lengths!\n");
         return -8;      /* incomplete code ok only for single length 1 code */
     }
-    print_to_compressed_log("%s},\n", print_level_tabel[print_level]);
 
     bit_position_start = get_input_bit_position(s);
 
     /* decode data until end-of-block code */
-    ret = codes(s, &lencode, &distcode, print_level);
+    ret = codes(s, &lencode, &distcode, json);
 
     bit_position_end = get_input_bit_position(s);
     decompressed_bytes_size = s->outcnt - decompressed_bytes_size;
-    print_to_decompressed_log("%s\"DECOMPRESSED_BYTES\": %d,\n",
-        print_level_tabel[print_level], decompressed_bytes_size);
+    if (decompressed_data_log_file) {
+        cJSON_AddNumberToObject(json, "DECOMPRESSED_BYTES", decompressed_bytes_size);
+    }
 
     return ret;
 }
@@ -1359,7 +1278,7 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
          unsigned long *destlen,        /* amount of output space */
          const unsigned char *source,   /* pointer to source data pointer */
          unsigned long *sourcelen,
-         int print_level)      /* amount of input available */
+         cJSON* json)                   /* amount of input available */
 {
     struct state s;             /* input/output state */
     int last, type;             /* block information */
@@ -1380,7 +1299,7 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
     s.bitbuf = 0;
     s.bitcnt = 0;
 
-    print_log_to_both("%s\"DEFLATE_BLOCK\": [\n", print_level_tabel[print_level]);
+    cJSON* blocks_json = cJSON_AddArrayToObject(json, "DEFLATE_BLOCK");
 
     /* return if bits() or decode() tries to read past available input */
     if (setjmp(s.env) != 0) {             /* if came back here via longjmp() */
@@ -1392,43 +1311,31 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
             last = bits(&s, 1);         /* one if last block */
             block_index++;
 
-            print_log_to_both("%s{\n", print_level_tabel[print_level + 1]);
-
-            print_log_to_both("%s\"BLOCK_BIT_POSITION\": %d,\n",
-                print_level_tabel[print_level + 2],
-                block_start_bit_position);
-
-            print_log_to_both("%s\"BFINAL\": {\n",
-                print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"bit_size\": 1,\n",
-                print_level_tabel[print_level + 3]);
-            print_log_to_both("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 3], last);
+            cJSON* block_json = cJSON_CreateObject();
+            cJSON_AddNumberToObject(block_json, "BLOCK_BIT_POSITION", block_start_bit_position);
+            
+            cJSON* bfinal_json = cJSON_AddObjectToObject(block_json, "BFINAL");
+            cJSON_AddNumberToObject(bfinal_json, "bit_size", 1);
+            cJSON_AddNumberToObject(bfinal_json, "value", last);
             if (last) {
-                print_log_to_both("%s\"description\": \"last block marker = yes\"\n",
-                    print_level_tabel[print_level + 3]);
+                cJSON_AddStringToObject(bfinal_json, "description", "last block marker = yes");
             } else {
-                print_log_to_both("%s\"description\": \"last block marker = no\"\n",
-                    print_level_tabel[print_level + 3]);
+                cJSON_AddStringToObject(bfinal_json, "description", "last block marker = no");
             }
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
 
             type = bits(&s, 2);         /* block type 0..3 */
             if (type == 0) {
-                err = stored(&s, print_level + 2);
+                err = stored(&s, block_json);
             } else if (type == 1) {
-                err = fixed(&s, print_level + 2);
+                err = fixed(&s, block_json);
             } else if (type == 2) {
-                err = dynamic(&s, print_level + 2);
+                err = dynamic(&s, block_json);
             } else {
                 /* type == 3, invalid */
-                print_log_to_both("%s\"BTYPE\": {\n",
-                    print_level_tabel[print_level + 2]);
-                print_log_to_both("%s\"bit_size\": 2,\n", print_level_tabel[print_level + 3]);
-                print_log_to_both("%s\"value\": %d,\n", print_level_tabel[print_level + 3], type);
-                print_log_to_both("%s\"description\": \"invalid block type (type == 3)\"\n",
-                    print_level_tabel[print_level + 3]);
-                print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
+                cJSON* btype_json = cJSON_AddObjectToObject(block_json, "BTYPE");
+                cJSON_AddNumberToObject(btype_json, "bit_size", 2);
+                cJSON_AddNumberToObject(btype_json, "value", type);
+                cJSON_AddStringToObject(btype_json, "description", "invalid block type (type == 3)");
 
                 fprintf(stderr, "invalid block type (type == 3)!\n");
                 err = -1;
@@ -1437,35 +1344,25 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
             block_end_bit_position = get_input_bit_position(&s);
             block_bit_size = block_end_bit_position - block_start_bit_position;
 
-            print_log_to_both("%s\"BLOCK_BIT_SIZE\": %d\n",
-                print_level_tabel[print_level + 2], block_bit_size);
+            cJSON_AddNumberToObject(block_json, "BLOCK_BIT_SIZE", block_bit_size);
 
             block_start_bit_position = get_input_bit_position(&s);
             if (block_start_bit_position == (*sourcelen << 3)) {
                 err = 0;
-                print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
                 break;
-            } else if (last) {
-                print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-            } else {
-                print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
             }
+
+            cJSON_AddItemToArray(blocks_json, block_json);
 
             if (err != 0)
                 break;                  /* return with error */
         } while (!last);
     }
 
-    print_log_to_both("%s],\n", print_level_tabel[print_level]);
-
     if (err == 0) {
-        print_log_to_both("%s\"BLOCK_SUMMARY\": {\n",
-            print_level_tabel[print_level]);
-        print_log_to_both("%s\"block_num\": %d,\n",
-            print_level_tabel[print_level + 1], block_index);
-        print_log_to_both("%s\"decompressed_bytes\": %d\n",
-            print_level_tabel[print_level + 1], s.outcnt);
-        print_log_to_both("%s},\n", print_level_tabel[print_level]);
+        cJSON* block_summary_json = cJSON_AddObjectToObject(json, "BLOCK_SUMMARY");
+        cJSON_AddNumberToObject(block_summary_json, "block_num", block_index);
+        cJSON_AddNumberToObject(block_summary_json, "decompressed_bytes", s.outcnt);
     }
 
     /* update the lengths and return */

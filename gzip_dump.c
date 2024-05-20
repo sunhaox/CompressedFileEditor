@@ -353,7 +353,7 @@ int gzip_dump(unsigned char *dest,
     decompressed_len = source_skip_header_size;
 
     ret = puff(dest, destlen, source + gzip_header_size, &decompressed_len,
-        print_level + 2);
+        gzip_format_json);
     if (dest == NULL) {
         if (ret) {
             fprintf(stderr, "puff() failed with return code %d\n", ret);

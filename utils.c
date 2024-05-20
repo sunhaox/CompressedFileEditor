@@ -60,21 +60,11 @@ void print_to_decompressed_log(char *fmt, ...)
     }
 }
 
-void print_compressed_data_hex(int data_val, int print_level)
+void print_compressed_data_hex(int data_val, cJSON* json)
 {
-    if (print_data_verbose) {
-        compressed_data_print_num_count += sprintf(compressed_data_print_buffer
-            + compressed_data_print_num_count, "0x%02x ", data_val);
-        compressed_data_print_data_count++;
-
-        if (compressed_data_print_data_count == 16) {
-            print_to_compressed_log("%s\"%s\",\n", print_level_tabel[print_level],
-                    compressed_data_print_buffer);
-            memset(compressed_data_print_buffer, 0,
-                compressed_data_print_num_count);
-            compressed_data_print_data_count = 0;
-            compressed_data_print_num_count = 0;
-        }
+    if (print_data_verbose && compressed_data_log_file) {
+        cJSON* item = cJSON_CreateNumber(data_val);
+        cJSON_AddItemToArray(json, item);
     }
 }
 
@@ -96,53 +86,11 @@ void print_compressed_data_dec(int data_val, int print_level)
     }
 }
 
-void print_decompressed_data_hex(int data_val, int print_level)
+void print_decompressed_data_hex(int data_val, cJSON* json)
 {
-    if (print_data_verbose) {
-        decompressed_data_print_num_count += sprintf(decompressed_data_print_buffer
-            + decompressed_data_print_num_count, "0x%02x ", data_val);
-        decompressed_data_print_data_count++;
-
-        if (decompressed_data_print_data_count == 16) {
-            print_to_decompressed_log("%s\"%s\",\n", print_level_tabel[print_level],
-                decompressed_data_print_buffer);
-            memset(decompressed_data_print_buffer, 0,
-                decompressed_data_print_num_count);
-            decompressed_data_print_data_count = 0;
-            decompressed_data_print_num_count = 0;
-        }
-    }
-}
-
-void print_compressed_data_final(int print_level)
-{
-    if (print_data_verbose) {
-        if (compressed_data_print_num_count) {
-            print_to_compressed_log("%s\"%s\"\n", print_level_tabel[print_level],
-                    compressed_data_print_buffer);
-            memset(compressed_data_print_buffer, 0,
-                compressed_data_print_num_count);
-            compressed_data_print_data_count = 0;
-            compressed_data_print_num_count = 0;
-        } else {
-            print_to_compressed_log("%s\"\"\n", print_level_tabel[print_level]);
-        }
-    }
-}
-
-void print_decompressed_data_final(int print_level)
-{
-    if (print_data_verbose) {
-        if (decompressed_data_print_num_count) {
-            print_to_decompressed_log("%s\"%s\"\n", print_level_tabel[print_level],
-                decompressed_data_print_buffer);
-            memset(decompressed_data_print_buffer, 0,
-                decompressed_data_print_num_count);
-            decompressed_data_print_data_count = 0;
-            decompressed_data_print_num_count = 0;
-        } else {
-            print_to_decompressed_log("%s\"\"\n", print_level_tabel[print_level]);
-        }
+    if (print_data_verbose && decompressed_data_file) {
+        cJSON* item = cJSON_CreateNumber(data_val);
+        cJSON_AddItemToArray(json, item);
     }
 }
 
@@ -160,6 +108,16 @@ void print_log_to_both(char *fmt, ...)
         vfprintf(decompressed_data_log_file, fmt, args);
         va_end(args);
     }
+}
+
+void addStringToObjectFormatted(cJSON* json, const char *const name, const char *const format, ...)
+{
+    char buffer[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    cJSON_AddStringToObject(json, name, buffer);
 }
 
 void dump_data_to_number_array_json(cJSON* json, const char *const name, unsigned char *buffer, unsigned int num)

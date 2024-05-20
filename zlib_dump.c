@@ -90,7 +90,6 @@ local int decode_zlib_header(const unsigned char *source, cJSON* json)
 {
     unsigned char cmf, comp_method, comp_info;
     unsigned char flags, check_bits, preset_dictionary, compression_level;
-    unsigned char str[100];
     
     if (!source)
         return -1;
@@ -121,8 +120,7 @@ local int decode_zlib_header(const unsigned char *source, cJSON* json)
         fprintf(stderr, "zlib header decode failed!\n");
         return -1;
     }
-    sprintf(str, "Window size: %d Bytes", 1 << (comp_info + 8));
-    cJSON_AddStringToObject(compression_info_json, "description", str);
+    addStringToObjectFormatted(compression_info_json, "description", "Window size: %d Bytes", 1 << (comp_info + 8));
 
     flags = source[1];
     check_bits = flags & 0x1F;
@@ -186,7 +184,7 @@ int zlib_dump(unsigned char *dest,
     }
 
     ret = puff(dest, destlen, source + zlib_header_size, &decompressed_len,
-        print_level + 2);
+        zlib_format_json);
     if (dest == NULL) {
         if (ret) {
             fprintf(stderr, "puff() failed with return code %d\n", ret);

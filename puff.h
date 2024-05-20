@@ -39,6 +39,6 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
          unsigned long *destlen,        /* amount of output space */
          const unsigned char *source,   /* pointer to source data pointer */
          unsigned long *sourcelen,
-         int print_level);     /* amount of input available */
+         cJSON* json);     /* amount of input available */
 
 #endif
