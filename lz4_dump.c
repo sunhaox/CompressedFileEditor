@@ -89,7 +89,7 @@ local void *load(const char *name, size_t *len)
     return buf;
 }
 
-local unsigned decode_lz4_header(const unsigned char *source, int print_level)
+local unsigned decode_lz4_header(const unsigned char *source, cJSON* json)
 {
     unsigned char dictId, c_checksum, c_size, b_checksum, b_indep, version, reserved;
     unsigned char block_max_size;
@@ -100,17 +100,9 @@ local unsigned decode_lz4_header(const unsigned char *source, int print_level)
     if (!source)
         return -1;
 
-    print_log_to_both("%s\"LZ4_HEADER\": {\n",
-        print_level_tabel[print_level]);
-    print_log_to_both("%s\"MAGIC NUMBER\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 32,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": [\n",
-        print_level_tabel[print_level + 2]);
-    print_hex_with_buffer((unsigned char *)source, 4, print_level+3);
-    print_log_to_both("%s]\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
+    cJSON* magic_number_json = cJSON_AddObjectToObject(json, "MAGIC_NUMBER");
+    cJSON_AddNumberToObject(magic_number_json, "bit_size", 32);
+    dump_data_to_json(magic_number_json, "value", (unsigned char *)source, 4);
 
     flags = source[4];
     dictId = flags & 0x1;
@@ -122,152 +114,101 @@ local unsigned decode_lz4_header(const unsigned char *source, int print_level)
     version = (flags >> 6) & 0x3;
     blockChecksum_g = b_checksum;
     contentChecksum_g = c_checksum;
-    print_log_to_both("%s\"FRAME DESCRIPTOR\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"FLG\": {\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"Dictionary ID flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], dictId);
+
+    cJSON* frame_descriptor_json = cJSON_AddObjectToObject(json, "FRAME DESCRIPTOR");
+    
+    cJSON* flg_json = cJSON_AddObjectToObject(frame_descriptor_json, "FLG");
+
+    cJSON* dictionary_id_flag_json = cJSON_AddObjectToObject(frame_descriptor_json, "Dictionary ID Flag");
+    cJSON_AddNumberToObject(dictionary_id_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(dictionary_id_flag_json, "value", dictId);
     if (dictId == 0) {
-        print_log_to_both("%s\"description\": \"a 4-bytes Dict-ID field will not be present\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(dictionary_id_flag_json, "description", "a 4-bytes Dict-ID field will not be present");
     }
     else if (dictId == 1) {
-        print_log_to_both("%s\"description\": \"a 4-bytes Dict-ID field will be present, after the descriptor flags and the Content Size\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(dictionary_id_flag_json, "description", "a 4-bytes Dict-ID field will be present, after the descriptor flags and the Content Size");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"RESERVED\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Content checksum flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], c_checksum);
+
+    cJSON* reserved_json = cJSON_AddObjectToObject(flg_json, "RESERVED");
+    cJSON_AddNumberToObject(reserved_json, "bit_size", 1);
+
+    cJSON* content_checksum_flag_json = cJSON_AddObjectToObject(flg_json, "Content Checksum Flag");
+    cJSON_AddNumberToObject(content_checksum_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(content_checksum_flag_json, "value", c_checksum);
     if (c_checksum == 0) {
-        print_log_to_both("%s\"description\": \"a 32-bits content checksum will not be appended after the EndMark\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(content_checksum_flag_json, "description", "a 32-bits content checksum will not be appended after the EndMark");
     }
     else if (c_checksum == 1) {
-        print_log_to_both("%s\"description\": \"a 32-bits content checksum will be appended after the EndMark\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(content_checksum_flag_json, "description", "a 32-bits content checksum will be appended after the EndMark");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Content Size flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], c_size);
+
+    cJSON* content_size_flag_json = cJSON_AddObjectToObject(flg_json, "Content Size Flag");
+    cJSON_AddNumberToObject(content_size_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(content_size_flag_json, "value", c_size);
     if (c_size == 0) {
-        print_log_to_both("%s\"description\": \"the uncompressed size of data included within the frame will not be present as an 8 bytes unsigned little endian value\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(content_size_flag_json, "description", "the uncompressed size of data included within the frame will not be present as an 8 bytes unsigned little endian value");
     }
     else if (c_size == 1) {
-        print_log_to_both("%s\"description\": \"the uncompressed size of data included within the frame will be present as an 8 bytes unsigned little endian value, after the flags\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(content_size_flag_json, "description", "the uncompressed size of data included within the frame will be present as an 8 bytes unsigned little endian value, after the flags");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Block checksum flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], b_checksum);
+
+    cJSON* block_checksum_flag_json = cJSON_AddObjectToObject(flg_json, "Block checksum flag");
+    cJSON_AddNumberToObject(block_checksum_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(block_checksum_flag_json, "value", b_checksum);
     if (b_checksum == 0) {
-        print_log_to_both("%s\"description\": \"each data block will not be followed by a 4-bytes checksum\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_checksum_flag_json, "description", "each data block will not be followed by a 4-bytes checksum");
     }
     else if (b_checksum == 1) {
-        print_log_to_both("%s\"description\": \"each data block will be followed by a 4-bytes checksum\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_checksum_flag_json, "description", "each data block will be followed by a 4-bytes checksum");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Block Independence flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], b_indep);
+
+    cJSON* block_indep_flag_json = cJSON_AddObjectToObject(flg_json, "Block Independence Flag");
+    cJSON_AddNumberToObject(block_indep_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(block_indep_flag_json, "value", b_indep);
     if (b_indep == 1) {
-        print_log_to_both("%s\"description\": \"blocks are independent.\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_indep_flag_json, "description", "blocks are independent.");
     }
     else if (b_indep == 0) {
-        print_log_to_both("%s\"description\": \"each block depends on previous ones(up to LZ4 window size, which is 64 KB).\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_indep_flag_json, "description", "each block depends on previous ones(up to LZ4 window size, which is 64 KB).");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Version Number\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 2,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], version);
-    print_log_to_both("%s\"description\": \"2 bits filed, must be set to 01.\"\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
+
+    cJSON* version_number_json = cJSON_AddObjectToObject(flg_json, "Version Number");
+    cJSON_AddNumberToObject(version_number_json, "bit_size", 2);
+    cJSON_AddNumberToObject(version_number_json, "value", version);
+    cJSON_AddStringToObject(version_number_json, "description", "2 bits filed, must be set to 01.");
 
     flags = source[5];
     block_max_size = (flags >> 4) & 0x7;
-    print_log_to_both("%s\"DB\": {\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"RSVD0\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 4\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Block MaxSize\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 3,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], block_max_size);
+    cJSON* db_json = cJSON_AddObjectToObject(frame_descriptor_json, "DB");
+
+    cJSON* rsvd0_json = cJSON_AddObjectToObject(db_json, "RSVD0");
+    cJSON_AddNumberToObject(rsvd0_json, "bit_size", 4);
+    
+    cJSON* block_max_size_json = cJSON_AddObjectToObject(db_json, "BLOCK MAXSIZE");
+    cJSON_AddNumberToObject(block_max_size_json, "bit_size", 3);
+    cJSON_AddNumberToObject(block_max_size_json, "value", block_max_size);
     if (block_max_size == 4) {
-        print_log_to_both("%s\"description\": \"64KB\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_max_size_json, "description", "64KB");
     }
     else if (block_max_size == 5) {
-        print_log_to_both("%s\"description\": \"256KB\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_max_size_json, "description", "256KB");
     }
     else if (block_max_size == 6) {
-        print_log_to_both("%s\"description\": \"1MB\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_max_size_json, "description", "1MB");
     }
     else if (block_max_size == 7) {
-        print_log_to_both("%s\"description\": \"4MB\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(block_max_size_json, "description", "4MB");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"RSVD1\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
+    
+    cJSON* rsvd1_json = cJSON_AddObjectToObject(db_json, "RSVD1");
+    cJSON_AddNumberToObject(rsvd1_json, "bit_size", 1);
+    
     if (c_size == 1) {
         c_size_size = 8;
-        print_log_to_both("%s\"Content Size\": {\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": 64,\n",
-            print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"value\": [\n",
-            print_level_tabel[print_level + 3]);
-        print_hex_with_buffer((unsigned char *)source + 6, 8, print_level+4);
-        print_log_to_both("%s],\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"description\": \"the original (uncompressed) size\"\n",
-            print_level_tabel[print_level + 3]);
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
+
+        cJSON* content_size_json = cJSON_AddObjectToObject(frame_descriptor_json, "Content Size");
+        cJSON_AddNumberToObject(content_size_json, "bit_size", 64);
+        dump_data_to_json(content_size_json, "value", (unsigned char*)source + 6, 8);
     }
     else {
         c_size_size = 0;
@@ -275,35 +216,24 @@ local unsigned decode_lz4_header(const unsigned char *source, int print_level)
     
     if (dictId == 1) {
         d_id_size = 4;
-        print_log_to_both("%s\"Dictionary ID\": {\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": 32,\n",
-            print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"value\": [\n",
-            print_level_tabel[print_level + 3]);
-        print_hex_with_buffer((unsigned char *)source + c_size_size + 6, 4, print_level+4);
-        print_log_to_both("%s]\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
+
+        cJSON* dictionary_id_json = cJSON_AddObjectToObject(frame_descriptor_json, "Dictionary ID");
+        cJSON_AddNumberToObject(dictionary_id_json, "bit_size", 32);
+        dump_data_to_json(dictionary_id_json, "value", (unsigned char*)source + c_size_size + 6, 4);
     }
     else {
         d_id_size = 0;
     }
 
     hc = source[6 + c_size_size + d_id_size];
-    print_log_to_both("%s\"Header Checksum\": {\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 8,\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": %d\n",
-        print_level_tabel[print_level + 3], hc);
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
+    cJSON* header_checksum_json = cJSON_AddObjectToObject(frame_descriptor_json, "Header Checksum");
+    cJSON_AddNumberToObject(header_checksum_json, "bit_size", 8);
+    cJSON_AddNumberToObject(header_checksum_json, "value", hc);
 
     return c_size_size + d_id_size + 7;
 }
 
-int decode_lz4_block(const unsigned char *source, int print_level)
+int decode_lz4_block(const unsigned char *source, cJSON* json)
 {
     unsigned int eof, block_size, byte_count;
     unsigned char compressed_flag;
@@ -316,38 +246,28 @@ int decode_lz4_block(const unsigned char *source, int print_level)
 
     byte_count = 0;
 
-    print_log_to_both("%s\"LZ4_BLOCK\": [\n",
-        print_level_tabel[print_level]);
+    cJSON* blocks_json = cJSON_AddArrayToObject(json, "LZ4_BLOCK");
+
     do
     {
-        print_log_to_both("%s{\n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"BLOCK_BIT_POSITION\": %d,\n", print_level_tabel[print_level + 2], byte_count * 8);
+        cJSON* block_json = cJSON_CreateObject();
+
+        cJSON_AddNumberToObject(block_json, "BLOCK_BIT_POSITION", byte_count * 8);
+
         block_size = *(unsigned int*)source;
         compressed_flag = 0x1 & (block_size >> 31);
         block_size = (block_size << 1) >> 1;
-        print_log_to_both("%s\"BLOCK_BIT_SIZE\": %d,\n", print_level_tabel[print_level + 2], (block_size+4) * 8);
+        cJSON_AddNumberToObject(block_json, "BLOCK_BIT_SIZE", (block_size + 4) * 8);
         if (compressed_flag == 1) {
-            if (blockChecksum_g == 1) {
-                print_log_to_both("%s\"COMPRESSED_FLAG\": \"UNCOMPRESSED\",\n", print_level_tabel[print_level + 2]);
-            }
-            else {
-                print_log_to_both("%s\"COMPRESSED_FLAG\": \"UNCOMPRESSED\"\n", print_level_tabel[print_level + 2]);
-            }
+            cJSON_AddStringToObject(block_json, "COMPRESSED_FLAG", "UNCOMPRESSED");
         }
         else if (compressed_flag == 0){
-            if (blockChecksum_g == 1) {
-                print_log_to_both("%s\"COMPRESSED_FLAG\": \"COMPRESSED\",\n", print_level_tabel[print_level + 2]);
-            }
-            else {
-                print_log_to_both("%s\"COMPRESSED_FLAG\": \"COMPRESSED\"\n", print_level_tabel[print_level + 2]);
-            }
+            cJSON_AddStringToObject(block_json, "COMPRESSED_FLAG", "COMPRESSED");
         }
         // TODO decode
         
         if (blockChecksum_g == 1) {
-            print_log_to_both("%s\"block checksum\": [\n", print_level_tabel[print_level + 2]);
-            print_hex_with_buffer((unsigned char*)source + 4 + block_size, 4, print_level+3);
-            print_log_to_both("%s]\n", print_level_tabel[print_level + 2]);
+            dump_data_to_json(block_json, "block_checksum_json", (unsigned char*)source + 4 + block_size, 4);
 
             byte_count += 4;
             source += 4;
@@ -355,14 +275,9 @@ int decode_lz4_block(const unsigned char *source, int print_level)
         
         byte_count += block_size + 4;
         source += block_size + 4;
-        if(*(unsigned int*) source == 0) {
-            print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-        }
-        else {
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
-        }
+
+        cJSON_AddItemToArray(blocks_json, block_json);
     } while (*(unsigned int*) source != 0);
-    print_log_to_both("%s],\n", print_level_tabel[print_level]);
 
     return byte_count;
 }
@@ -371,43 +286,31 @@ int lz4_dump(unsigned char *dest,
               unsigned long *destlen,
               const unsigned char *source,
               unsigned long sourcelen,
-              int print_level)
+              cJSON* json)
 {
     int ret = 0;
     unsigned lz4_header_size;
     unsigned lz4_blocks_size;
 
-    print_log_to_both("%s{\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"LZ4_FORMAT\": {\n", print_level_tabel[print_level + 1]);
+    cJSON* lz4_format_json = cJSON_AddObjectToObject(json, "ZLIB_FORMAT");
+    cJSON* lz4_header_json = cJSON_AddObjectToObject(lz4_format_json, "LZ4_HEADER");
 
-    lz4_header_size = decode_lz4_header(source, print_level + 2);
+    lz4_header_size = decode_lz4_header(source, lz4_header_json);
     if (lz4_header_size == 0) {
         return -1;
     }
 
-    lz4_blocks_size = decode_lz4_block(source + lz4_header_size, print_level + 2);
+    lz4_blocks_size = decode_lz4_block(source + lz4_header_size, lz4_format_json);
 
-    print_log_to_both("%s\"EOF\": {\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"bit_size\": 32,\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
-    print_hex_with_buffer((unsigned char *)source + lz4_header_size + lz4_blocks_size, 4, print_level+4);
-    print_log_to_both("%s]\n", print_level_tabel[print_level + 3]);
-    if (contentChecksum_g)
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
-    else 
-        print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
+    cJSON* eof_json = cJSON_AddObjectToObject(lz4_format_json, "EOF");
+    cJSON_AddNumberToObject(eof_json, "bit_size", 32);
+    dump_data_to_json(eof_json, "value", (unsigned char *)source + lz4_header_size + lz4_blocks_size, 4);
 
     if (contentChecksum_g) {
-        print_log_to_both("%s\"Content Checksum\": {\n", print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": 32,\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
-        print_hex_with_buffer((unsigned char *)source + lz4_header_size + lz4_blocks_size + 4, 4, print_level+4);
-        print_log_to_both("%s]\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
+        cJSON* content_checksum_json = cJSON_AddObjectToObject(lz4_format_json, "CONTENT CHECKSUM");
+        cJSON_AddNumberToObject(content_checksum_json, "bit_size", 32);
+        dump_data_to_json(content_checksum_json, "value", (unsigned char *)source + lz4_header_size + lz4_blocks_size + 4, 4);
     }
-
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level]);
 
     return ret;
 }
@@ -469,11 +372,19 @@ int main(int argc, char **argv)
     }
 
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
+    compressed_data_json = cJSON_CreateObject();
 
-    ret = lz4_dump(NIL, &destlen, source, len, 0);
+    ret = lz4_dump(NIL, &destlen, source, len, compressed_data_json);
 
+    char* jsonString = cJSON_Print(compressed_data_json);
+    if (compressed_data_log_file) {
+        fprintf(compressed_data_log_file, "%s", jsonString);
+    }
+    cJSON_free(jsonString);
+    cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
+    compressed_data_json = NULL;
 
     /* if requested, inflate again and write decompressed data to stdout */
     if (put && ret == 0) {
@@ -484,8 +395,17 @@ int main(int argc, char **argv)
         }
 
         decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
-        lz4_dump(dest, &destlen, source, len, 0);
+        decompressed_data_json = cJSON_CreateObject();
+        lz4_dump(dest, &destlen, source, len, decompressed_data_json);
+        char* jsonString = cJSON_Print(decompressed_data_json);
+        if (decompressed_data_log_file) {
+            fprintf(decompressed_data_log_file, "%s", jsonString);
+        }
+        cJSON_free(jsonString);
+        cJSON_Delete(decompressed_data_json);
         fclose(decompressed_data_log_file);
+        decompressed_data_log_file = NULL;
+        decompressed_data_json = NULL;
 
         if (wr_file) {
             decompressed_data_file = fopen(decompressed_file_name, "wb");
