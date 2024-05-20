@@ -337,7 +337,6 @@ int gzip_dump(unsigned char *dest,
     unsigned source_skip_header_size;
 
     unsigned long decompressed_len;
-    int print_level = 0;
 
     cJSON *gzip_format_json = cJSON_AddObjectToObject(json, "GZIP_FORMAT");
     cJSON *gzip_header_json = cJSON_AddObjectToObject(gzip_format_json, "GZIP_HEADER");
@@ -368,36 +367,23 @@ int gzip_dump(unsigned char *dest,
     }
 
     if (source_skip_header_size - decompressed_len >= 4) {
-        print_log_to_both("%s\"CHECKSUM_IN_FILE\": {\n", print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": 32,\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
-        print_hex_with_buffer((unsigned char *)source + gzip_header_size + decompressed_len, 4, print_level + 4);
-        print_log_to_both("%s],\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"description\": \"CRC-32 Checksum in File\"\n", print_level_tabel[print_level + 3]);
+        cJSON* checksum_in_file_json = cJSON_AddObjectToObject(gzip_format_json, "CHECKSUM_IN_FILE");
+        cJSON_AddNumberToObject(checksum_in_file_json, "bit_size", 32);
+        dump_data_to_json(checksum_in_file_json, "value", (unsigned char *)source + gzip_header_size + decompressed_len, 4);
+        cJSON_AddStringToObject(checksum_in_file_json, "description", "CRC-32 Checksum in File");
         if (dest) {
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"CHECKSUM_CALCULATED\": {\n", print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
+            cJSON* checksum_calculated_json = cJSON_AddObjectToObject(gzip_format_json, "CHECKSUM_CALCULATED");
             adler32_checksum = swap_uint32(adler32_checksum);
-            print_hex_with_buffer((unsigned char *)&adler32_checksum, 4, print_level + 4);
-            print_log_to_both("%s],\n", print_level_tabel[print_level + 3]);
-            print_log_to_both("%s\"description\": \"CRC-32 Checksum Calculated\"\n", print_level_tabel[print_level + 3]);
+            dump_data_to_json(checksum_calculated_json, "value", (unsigned char *)&adler32_checksum, 4);
+            cJSON_AddStringToObject(checksum_calculated_json, "description", "CRC-32 Checksum Calculated");
         }
 
         if (source_skip_header_size - decompressed_len == 8) {
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"INPUT_SIZE\": {\n", print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"bit_size\": %d,\n",
-                print_level_tabel[print_level + 3], 32);
-            print_log_to_both("%s\"value\": %d\n",
-                print_level_tabel[print_level + 3], *((int *)&source[gzip_header_size + decompressed_len + 4]));
+            cJSON* input_size_json = cJSON_AddObjectToObject(gzip_format_json, "INPUT_SIZE");
+            cJSON_AddNumberToObject(input_size_json, "bit_size", 32);
+            cJSON_AddNumberToObject(input_size_json, "value",  *((int *)&source[gzip_header_size + decompressed_len + 4]));
         }
-
-        print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
     }
-
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level]);
 
     return ret;
 }
@@ -464,11 +450,14 @@ int main(int argc, char **argv)
     ret = gzip_dump(NIL, &destlen, source, len, compressed_data_json);
 
     char* jsonString = cJSON_Print(compressed_data_json);
-    printf("%s", jsonString);
+    if (compressed_data_log_file) {
+        fprintf(compressed_data_log_file, "%s", jsonString);
+    }
     cJSON_free(jsonString);
     cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
+    compressed_data_json = NULL;
 
     /* if requested, inflate again and write decompressed data to stdout */
     if (put && ret == 0) {
@@ -479,8 +468,17 @@ int main(int argc, char **argv)
         }
 
         decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
-        gzip_dump(dest, &destlen, source, len, 0);
+        decompressed_data_json = cJSON_CreateObject();
+        gzip_dump(dest, &destlen, source, len, decompressed_data_json);
+        char* jsonString = cJSON_Print(decompressed_data_json);
+        if (decompressed_data_log_file) {
+            fprintf(decompressed_data_log_file, "%s", jsonString);
+        }
+        cJSON_free(jsonString);
+        cJSON_Delete(decompressed_data_json);
         fclose(decompressed_data_log_file);
+        decompressed_data_log_file = NULL;
+        decompressed_data_json = NULL;
 
         if (wr_file) {
             decompressed_data_file = fopen(decompressed_file_name, "wb");
