@@ -61,7 +61,7 @@ static buffer_s read_file(const char *path)
 }
 
 
-local unsigned decode_zstd_header(const unsigned char *source, int print_level)
+local unsigned decode_zstd_header(const unsigned char *source, cJSON* json)
 {
     unsigned char dic_id_flag, c_checksum_flag, unused_bit, single_segment_flag, frame_content_size_flag;
     unsigned char mantissa, exponent, window_log, window_base, window_add, window_size;
@@ -73,17 +73,9 @@ local unsigned decode_zstd_header(const unsigned char *source, int print_level)
     if (!source)
         return -1;
 
-    print_log_to_both("%s\"ZSTD_HEADER\": {\n",
-        print_level_tabel[print_level]);
-    print_log_to_both("%s\"MAGIC NUMBER\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"bit_size\": 32,\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"value\": [\n",
-        print_level_tabel[print_level + 2]);
-    print_hex_with_buffer((unsigned char *)source, 4, print_level+3);
-    print_log_to_both("%s]\n", print_level_tabel[print_level + 2]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
+    cJSON* magic_number_json = cJSON_AddObjectToObject(json, "MAGIC NUMBER");
+    cJSON_AddNumberToObject(magic_number_json, "bit_size", 32);
+    dump_data_to_json(magic_number_json, "value", (unsigned char*)source, 4);
 
     flags = source[4];
     dic_id_flag = flags & 0x3;
@@ -92,109 +84,68 @@ local unsigned decode_zstd_header(const unsigned char *source, int print_level)
     single_segment_flag = (flags >> 5) & 0x1;
     frame_content_size_flag = (flags >> 6) & 0x3;
     contentChecksum_g = c_checksum_flag;
-    print_log_to_both("%s\"FRAME HEADER\": {\n",
-        print_level_tabel[print_level + 1]);
-    print_log_to_both("%s\"Frame Header Descriptor\": {\n",
-        print_level_tabel[print_level + 2]);
-    print_log_to_both("%s\"Dictionary ID flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 2,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], dic_id_flag);
+    cJSON* frame_header_json = cJSON_AddObjectToObject(json, "FRAME HEADER");
+    cJSON* frame_header_descriptor_json = cJSON_AddObjectToObject(frame_header_json, "FRAME HEADER DESCRIPTOR");
+    
+    cJSON* dictionary_id_flag_json = cJSON_AddObjectToObject(frame_header_descriptor_json, "Dictionary ID Flag");
+    cJSON_AddNumberToObject(dictionary_id_flag_json, "bit_size", 2);
+    cJSON_AddNumberToObject(dictionary_id_flag_json, "value", dic_id_flag);
     if (dic_id_flag == 0) {
         dic_id_size = 0;
-        print_log_to_both("%s\"description\": \"DID_Field_Size = 0\"\n",
-            print_level_tabel[print_level + 4]);
     }
     else if (dic_id_flag == 1) {
         dic_id_size = 1;
-        print_log_to_both("%s\"description\": \"DID_Field_Size = 1\"\n",
-            print_level_tabel[print_level + 4]);
     }
     else if (dic_id_flag == 2) {
         dic_id_size = 2;
-        print_log_to_both("%s\"description\": \"DID_Field_Size = 2\"\n",
-            print_level_tabel[print_level + 4]);
     }
     else if (dic_id_flag == 3) {
         dic_id_size = 4;
-        print_log_to_both("%s\"description\": \"DID_Field_Size = 4\"\n",
-            print_level_tabel[print_level + 4]);
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Content Checksum Flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d\n",
-        print_level_tabel[print_level + 4], c_checksum_flag);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"RESERVED\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Unused bit\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d\n",
-        print_level_tabel[print_level + 4], unused_bit);
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Single Segment Flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 1,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], single_segment_flag);
+    addStringToObjectFormatted(dictionary_id_flag_json, "description", "DID_Field_Size = %d", dic_id_size);
+
+    cJSON* content_checksum_flag_json = cJSON_AddObjectToObject(frame_header_descriptor_json, "CONTENT CHECKSUM FLAG");
+    cJSON_AddNumberToObject(content_checksum_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(content_checksum_flag_json, "value", c_checksum_flag);
+    
+    cJSON* reserved_json = cJSON_AddObjectToObject(frame_header_descriptor_json, "RESERVED");
+    cJSON_AddNumberToObject(reserved_json, "bit_size", 1);
+    
+    cJSON* unused_bit_json = cJSON_AddObjectToObject(frame_header_descriptor_json, "UNUSED BIT");
+    cJSON_AddNumberToObject(unused_bit_json, "bit_size", 1);
+    cJSON_AddNumberToObject(unused_bit_json, "value", unused_bit);
+
+    cJSON* single_segment_flag_json = cJSON_AddObjectToObject(frame_header_descriptor_json, "Single Segment Flag");
+    cJSON_AddNumberToObject(single_segment_flag_json, "bit_size", 1);
+    cJSON_AddNumberToObject(single_segment_flag_json, "value", single_segment_flag);
     if (single_segment_flag == 0) {
-        print_log_to_both("%s\"description\": \"data don't need be regenerated within a single continuous memory segment\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(single_segment_flag_json, "description", "data don't need be regenerated within a single continuous memory segment");
     }
     else if (single_segment_flag == 1) {
-        print_log_to_both("%s\"description\": \"data must be regenerated within a single continuous memory segment\"\n",
-            print_level_tabel[print_level + 4]);
+        cJSON_AddStringToObject(single_segment_flag_json, "description", "data must be regenerated within a single continuous memory segment");
     }
-    print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"Frame Content Size Flag\": {\n",
-        print_level_tabel[print_level + 3]);
-    print_log_to_both("%s\"bit_size\": 2,\n",
-        print_level_tabel[print_level + 4]);
-    print_log_to_both("%s\"value\": %d,\n",
-        print_level_tabel[print_level + 4], frame_content_size_flag);
+    
+    cJSON* frame_content_size_flag_json = cJSON_AddObjectToObject(frame_header_descriptor_json, "Frame Content Size Flag");
+    cJSON_AddNumberToObject(frame_content_size_flag_json, "bit_size", 2);
+    cJSON_AddNumberToObject(frame_content_size_flag_json, "value", frame_content_size_flag);
     if (frame_content_size_flag == 0) {
         if (single_segment_flag == 1) {
             frame_content_size_size = 1;
-            print_log_to_both("%s\"description\": \"FCS_Field_Size = 1\"\n",
-                print_level_tabel[print_level + 4]);
         }
         else {
             frame_content_size_size = 0;
-            print_log_to_both("%s\"description\": \"FCS_Field_Size = 0\"\n",
-                print_level_tabel[print_level + 4]);
         }
     }
     else if (frame_content_size_flag == 1) {
         frame_content_size_size = 2;
-        print_log_to_both("%s\"description\": \"FCS_Field_Size = 2\"\n",
-            print_level_tabel[print_level + 4]);
     }
     else if (frame_content_size_flag == 2) {
         frame_content_size_size = 4;
-        print_log_to_both("%s\"description\": \"FCS_Field_Size = 4\"\n",
-            print_level_tabel[print_level + 4]);
     }
     else if (frame_content_size_flag == 3) {
         frame_content_size_size = 8;
-        print_log_to_both("%s\"description\": \"FCS_Field_Size = 8\"\n",
-            print_level_tabel[print_level + 4]);
     }
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 3]);
-    if (single_segment_flag == 0 || dic_id_size > 0 || frame_content_size_size > 0)
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
-    else
-        print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
+    addStringToObjectFormatted(frame_content_size_flag_json, "description", "FCS_Field_Size = %d", frame_content_size_size);
 
     if (single_segment_flag == 0) {
         window_des_size = 1;
@@ -206,28 +157,17 @@ local unsigned decode_zstd_header(const unsigned char *source, int print_level)
         window_base = 1 << window_log;
         window_add = (window_base / 8) * mantissa;
         window_size = window_base + window_add;
-        print_log_to_both("%s\"Window Descriptor\": {\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"Mantissa\": {\n",
-            print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"bit_size\": 3,\n",
-            print_level_tabel[print_level + 4]);
-        print_log_to_both("%s\"value\": %d\n",
-            print_level_tabel[print_level + 4], mantissa);
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"Exponent\": {\n",
-            print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"bit_size\": 5,\n",
-            print_level_tabel[print_level + 4]);
-        print_log_to_both("%s\"value\": %d\n",
-            print_level_tabel[print_level + 4], exponent);
-        print_log_to_both("%s},\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"description\": \"window size = %d\"\n",
-            print_level_tabel[print_level + 3], window_size);
-        if (dic_id_size > 0 || frame_content_size_size > 0)
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
-        else
-            print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
+
+        cJSON* window_descriptor_json = cJSON_AddObjectToObject(frame_header_json, "Window Descriptor");
+        cJSON* mantissa_json = cJSON_AddObjectToObject(window_descriptor_json, "Mantissa");
+        cJSON_AddNumberToObject(mantissa_json, "bit_size", 3);
+        cJSON_AddNumberToObject(mantissa_json, "value", mantissa);
+
+        cJSON* exponent_json = cJSON_AddObjectToObject(window_descriptor_json, "Exponent");
+        cJSON_AddNumberToObject(exponent_json, "bit_size", 5);
+        cJSON_AddNumberToObject(exponent_json, "value", exponent);
+        
+        addStringToObjectFormatted(window_descriptor_json, "description", "window size = %d", window_size);
     }
     else {
         window_des_size = 0;
@@ -245,63 +185,43 @@ local unsigned decode_zstd_header(const unsigned char *source, int print_level)
         {
             dic_id = *(unsigned int *)(source + 5 + window_des_size);
         }
-        print_log_to_both("%s\"Dictionary ID\": {\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": %d,\n",
-            print_level_tabel[print_level + 3], dic_id_size * 8);
-        print_log_to_both("%s\"value\": %d\n",
-            print_level_tabel[print_level + 3], dic_id);
-        if (frame_content_size_size > 0)
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 2]);
-        else
-            print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
+
+        cJSON* dictionary_id_json = cJSON_AddObjectToObject(frame_header_json, "Dictionary ID");
+        cJSON_AddNumberToObject(dictionary_id_json, "bit_size", dic_id_size * 8);
+        cJSON_AddNumberToObject(dictionary_id_json, "value", dic_id);
     }
 
     if (frame_content_size_size > 0) {
-        print_log_to_both("%s\"Frame Content Size\": {\n",
-            print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": %d,\n",
-            print_level_tabel[print_level + 3], frame_content_size_size * 8);
+        cJSON* frame_content_size_json = cJSON_AddObjectToObject(frame_header_json, "Frame Content Size");
+        cJSON_AddNumberToObject(frame_content_size_json, "bit_size", frame_content_size_size * 8);
         if (frame_content_size_size == 1) {
             fcs_value = source[5 + window_des_size + dic_id_size];
             frame_content_size = fcs_value;
-            print_log_to_both("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 3], fcs_value);
-            print_log_to_both("%s\"description\": \"The original (uncompressed) size is %d\"\n",
-                print_level_tabel[print_level + 3], frame_content_size);
+            cJSON_AddNumberToObject(frame_content_size_json, "value", fcs_value);
+            addStringToObjectFormatted(frame_content_size_json, "description", "The original (uncompressed) size is %d", frame_content_size);
         }
         else if (frame_content_size_size == 2)
         {
             fcs_value = *(unsigned short *)(source + 5 + window_des_size + dic_id_size);
             frame_content_size = fcs_value + 256;
-            print_log_to_both("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 3], fcs_value);
-            print_log_to_both("%s\"description\": \"The original (uncompressed) size is (256+%d)=%d\"\n",
-                print_level_tabel[print_level + 3], fcs_value, frame_content_size);
+            cJSON_AddNumberToObject(frame_content_size_json, "value", fcs_value);
+            addStringToObjectFormatted(frame_content_size_json, "description", "The original (uncompressed) size is (256+%d)=%d", fcs_value, frame_content_size);
         }
         else if (frame_content_size_size == 4)
         {
             fcs_value = *(unsigned int *)(source + 5 + window_des_size + dic_id_size);
             frame_content_size = fcs_value;
-            print_log_to_both("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 3], fcs_value);
-            print_log_to_both("%s\"description\": \"The original (uncompressed) size is %d\"\n",
-                print_level_tabel[print_level + 3], frame_content_size);
+            cJSON_AddNumberToObject(frame_content_size_json, "value", fcs_value);
+            addStringToObjectFormatted(frame_content_size_json, "description", "The original (uncompressed) size is %d", frame_content_size);
         }
         else if (frame_content_size_size == 8)
         {
             fcs_value = *(unsigned long *)(source + 5 + window_des_size + dic_id_size);
             frame_content_size = fcs_value;
-            print_log_to_both("%s\"value\": %d,\n",
-                print_level_tabel[print_level + 3], fcs_value);
-            print_log_to_both("%s\"description\": \"The original (uncompressed) size is %d\"\n",
-                print_level_tabel[print_level + 3], frame_content_size);
+            cJSON_AddNumberToObject(frame_content_size_json, "value", fcs_value);
+            addStringToObjectFormatted(frame_content_size_json, "description", "The original (uncompressed) size is %d", frame_content_size);
         }
-        print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
     }
-
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s},\n", print_level_tabel[print_level]);
 
     return window_des_size + dic_id_size + frame_content_size_size + 5;
 }
@@ -309,16 +229,16 @@ local unsigned decode_zstd_header(const unsigned char *source, int print_level)
 int zstd_dump(void *const dst, const size_t dst_len,
               const void *const src, const size_t src_len,
               dictionary_t* parsed_dict,
-              int print_level)
+              cJSON* json)
 {
     int ret = 0;
     unsigned zstd_header_size;
     unsigned zstd_blocks_size;
 
-    print_log_to_both("%s{\n", print_level_tabel[print_level]);
-    print_log_to_both("%s\"ZSTD_FORMAT\": {\n", print_level_tabel[print_level + 1]);
+    cJSON* zstd_format_json = cJSON_AddObjectToObject(json, "ZSTD_FORMAT");
+    cJSON* zstd_header_json = cJSON_AddObjectToObject(zstd_format_json, "ZSTD_HEADER");
 
-    zstd_header_size = decode_zstd_header(src, print_level + 2);
+    zstd_header_size = decode_zstd_header(src, zstd_header_json);
     if (zstd_header_size == 0) {
         return -1;
     }
@@ -326,19 +246,13 @@ int zstd_dump(void *const dst, const size_t dst_len,
     size_t const src_offset =
         ZSTD_decompress_with_dict(dst, dst_len,
                                   src, src_len,
-                                  parsed_dict, print_level + 2);
+                                  parsed_dict, zstd_format_json);
 
     if (contentChecksum_g) {
-        print_log_to_both("%s\"Content Checksum\": {\n", print_level_tabel[print_level + 2]);
-        print_log_to_both("%s\"bit_size\": 32,\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s\"value\": [\n", print_level_tabel[print_level + 3]);
-        print_hex_with_buffer((unsigned char *)src + src_offset, 4, print_level+4);
-        print_log_to_both("%s]\n", print_level_tabel[print_level + 3]);
-        print_log_to_both("%s}\n", print_level_tabel[print_level + 2]);
+        cJSON* content_checksum_json = cJSON_AddObjectToObject(zstd_format_json, "Content Checksum");
+        cJSON_AddNumberToObject(content_checksum_json, "bit_size", 32);
+        dump_data_to_json(content_checksum_json, "value", (unsigned char*)src + src_offset, 4);
     }
-
-    print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-    print_log_to_both("%s}\n", print_level_tabel[print_level]);
 
     return ret;
 }
@@ -399,6 +313,7 @@ int main(int argc, char **argv)
     }
 
     compressed_data_log_file = fopen(compressed_log_file_name, "w");
+    compressed_data_json = cJSON_CreateObject();
 
     size_t out_capacity = ZSTD_get_decompressed_size(input.address, input.size);
     if (out_capacity == (size_t)-1) {
@@ -420,32 +335,28 @@ int main(int argc, char **argv)
         parse_dictionary(parsed_dict, dict.address, dict.size);
     }
 
-    ret = zstd_dump(output, out_capacity, input.address, input.size, parsed_dict, 0);
+    ret = zstd_dump(output, out_capacity, input.address, input.size, parsed_dict, compressed_data_json);
 
+    char* jsonString = cJSON_Print(compressed_data_json);
+    if (compressed_data_log_file) {
+        fprintf(compressed_data_log_file, "%s", jsonString);
+    }
+    cJSON_free(jsonString);
+    cJSON_Delete(compressed_data_json);
     fclose(compressed_data_log_file);
     compressed_data_log_file = NULL;
+    compressed_data_json = NULL;
 
     free_dictionary(parsed_dict);
 
     /* if requested, inflate again and write decompressed data to stdout */
     if (put) {
-        // dest = malloc(destlen);
-        // if (dest == NULL) {
-        //     fprintf(stderr, "memory allocation failure\n");
-        //     return 4;
-        // }
 
-        // decompressed_data_log_file = fopen(decompressed_log_file_name, "w");
-        // zstd_dump(dest, &destlen, source, len, 0);
-        // fclose(decompressed_data_log_file);
-
-        // if (wr_file) {
-        //     decompressed_data_file = fopen(decompressed_file_name, "wb");
-        //     fwrite(dest, 1, destlen, decompressed_data_file);
-        //     fclose(decompressed_data_file);
-        // }
-
-        // free(dest);
+        if (wr_file) {
+            decompressed_data_file = fopen(decompressed_file_name, "wb");
+            fwrite(output, 1, out_capacity, decompressed_data_file);
+            fclose(decompressed_data_file);
+        }
     }
 
     /* clean up */

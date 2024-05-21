@@ -41,7 +41,7 @@ size_t ZSTD_decompress(void *const dst, const size_t dst_len,
 /// `ZSTD_decompress` but uses the provided dict
 size_t ZSTD_decompress_with_dict(void *const dst, const size_t dst_len,
                               const void *const src, const size_t src_len,
-                              dictionary_t* parsed_dict, int print_level);
+                              dictionary_t* parsed_dict, cJSON* json);
 
 /// Get the decompressed size of an input stream so memory can be allocated in
 /// advance

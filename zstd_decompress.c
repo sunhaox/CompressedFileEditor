@@ -342,7 +342,7 @@ typedef struct {
 /// See
 /// https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#frame-concatenation
 static void decode_frame(ostream_t *const out, istream_t *const in,
-                         const dictionary_t *const dict, int print_level);
+                         const dictionary_t *const dict, cJSON* json);
 
 // Decode data in a compressed block
 static void decompress_block(frame_context_t *const ctx, ostream_t *const out,
@@ -392,7 +392,7 @@ size_t ZSTD_decompress(void *const dst, const size_t dst_len,
 
 size_t ZSTD_decompress_with_dict(void *const dst, const size_t dst_len,
                                  const void *const src, const size_t src_len,
-                                 dictionary_t* parsed_dict, int print_level) {
+                                 dictionary_t* parsed_dict, cJSON* json) {
 
     istream_t in = IO_make_istream(src, src_len);
     ostream_t out = IO_make_ostream(dst, dst_len);
@@ -403,7 +403,7 @@ size_t ZSTD_decompress_with_dict(void *const dst, const size_t dst_len,
     // parameters which tells the decoder how to decompress it."
 
     /* this decoder assumes decompression of a single frame */
-    decode_frame(&out, &in, parsed_dict, print_level);
+    decode_frame(&out, &in, parsed_dict, json);
 
     // return (size_t)(out.ptr - (u8 *)dst);
     return (size_t)(src_len - in.len);
@@ -412,7 +412,7 @@ size_t ZSTD_decompress_with_dict(void *const dst, const size_t dst_len,
 /******* FRAME DECODING ******************************************************/
 
 static void decode_data_frame(ostream_t *const out, istream_t *const in,
-                              const dictionary_t *const dict, int print_level);
+                              const dictionary_t *const dict, cJSON* json);
 static void init_frame_context(frame_context_t *const context,
                                istream_t *const in,
                                const dictionary_t *const dict);
@@ -423,14 +423,14 @@ static void frame_context_apply_dict(frame_context_t *const ctx,
                                      const dictionary_t *const dict);
 
 static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
-                            istream_t *const in, int print_level);
+                            istream_t *const in, cJSON* json);
 
 static void decode_frame(ostream_t *const out, istream_t *const in,
-                         const dictionary_t *const dict, int print_level) {
+                         const dictionary_t *const dict, cJSON* json) {
     const u32 magic_number = (u32)IO_read_bits(in, 32);
     if (magic_number == ZSTD_MAGIC_NUMBER) {
         // ZSTD frame
-        decode_data_frame(out, in, dict, print_level);
+        decode_data_frame(out, in, dict, json);
 
         return;
     }
@@ -444,7 +444,7 @@ static void decode_frame(ostream_t *const out, istream_t *const in,
 /// See
 /// https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#general-structure-of-zstandard-frame-format
 static void decode_data_frame(ostream_t *const out, istream_t *const in,
-                              const dictionary_t *const dict, int print_level) {
+                              const dictionary_t *const dict, cJSON* json) {
     frame_context_t ctx;
 
     // Initialize the context that needs to be carried from block to block
@@ -455,7 +455,7 @@ static void decode_data_frame(ostream_t *const out, istream_t *const in,
         OUT_SIZE();
     }
 
-    decompress_data(&ctx, out, in, print_level);
+    decompress_data(&ctx, out, in, json);
 
     free_frame_context(&ctx);
 }
@@ -584,7 +584,7 @@ static void parse_frame_header(frame_header_t *const header,
 
 /// Decompress the data from a frame block by block
 static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
-                            istream_t *const in, int print_level) {
+                            istream_t *const in, cJSON* json) {
     // "A frame encapsulates one or multiple blocks. Each block can be
     // compressed or not, and has a guaranteed maximum content size, which
     // depends on frame parameters. Unlike frames, each block depends on
@@ -594,11 +594,10 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
     int last_block = 0;
     int fist_block_offset = in->len;
 
-    print_log_to_both("%s\"ZSTD_BLOCK\": [\n",
-        print_level_tabel[print_level]);
+    cJSON* blocks_json = cJSON_AddObjectToObject(json, "ZSTD_BLOCK");
     do {
-        print_log_to_both("%s{\n", print_level_tabel[print_level + 1]);
-        print_log_to_both("%s\"BLOCK_BIT_POSITION\": %d,\n", print_level_tabel[print_level + 2], (fist_block_offset - in->len) * 8);
+        cJSON* block_json = cJSON_CreateObject();
+        cJSON_AddNumberToObject(block_json, "BLOCK_BIT_POSITION", (fist_block_offset - in->len) * 8);
         // "Last_Block
         //
         // The lowest bit signals if this block is the last one. Frame ends
@@ -612,11 +611,11 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
         last_block = (int)IO_read_bits(in, 1);
         const int block_type = (int)IO_read_bits(in, 2);
         const size_t block_len = IO_read_bits(in, 21);
-        print_log_to_both("%s\"last block\": %d,\n", print_level_tabel[print_level + 2], last_block);
-        print_log_to_both("%s\"block length\": %d,\n", print_level_tabel[print_level + 2], block_len);
+        cJSON_AddNumberToObject(block_json, "last block", last_block);
+        cJSON_AddNumberToObject(block_json, "block_length", block_len);
         switch (block_type) {
         case 0: {
-            print_log_to_both("%s\"block type\": \"raw block\",\n", print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(block_json, "block type", "raw block");
 
             // "Raw_Block - this is an uncompressed block. Block_Size is the
             // number of bytes to read and copy."
@@ -641,12 +640,12 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
 
             ctx->current_total_output += block_len;
 
-            print_log_to_both("%s\"block type\": \"RLE block\",\n", print_level_tabel[print_level + 2]);
-            print_log_to_both("%s\"repeat data\": 0x%02x\n", print_level_tabel[print_level + 2], read_ptr[0]);
+            cJSON_AddStringToObject(block_json, "block type", "RLE block");
+            cJSON_AddNumberToObject(block_json, "repeat data", read_ptr[0]);
             break;
         }
         case 2: {
-            print_log_to_both("%s\"block type\": \"compressed block\",\n", print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(block_json, "block type", "compressed block");
             // "Compressed_Block - this is a Zstandard compressed block,
             // detailed in another section of this specification. Block_Size is
             // the compressed size.
@@ -657,7 +656,7 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
             break;
         }
         case 3:
-            print_log_to_both("%s\"block type\": \"Reserved\",\n", print_level_tabel[print_level + 2]);
+            cJSON_AddStringToObject(block_json, "block type", "Reserved");
             // "Reserved - this is not a block. This value cannot be used with
             // current version of this specification."
             CORRUPTION();
@@ -666,20 +665,11 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
             IMPOSSIBLE();
         }
 
-        print_log_to_both("%s\"BLOCK_BIT_SIZE\": %d\n", print_level_tabel[print_level + 2], (current_block_offset - in->len) * 8);
-        if (last_block) {
-            print_log_to_both("%s}\n", print_level_tabel[print_level + 1]);
-        }
-        else {
-            print_log_to_both("%s},\n", print_level_tabel[print_level + 1]);
-        }
+        cJSON_AddNumberToObject(block_json, "BLOCK_BIT_SIZE", (current_block_offset - in->len) * 8);
+        cJSON_AddItemToArray(blocks_json, block_json);
+
     } while (!last_block);
 
-    if (ctx->header.content_checksum_flag) {
-        print_log_to_both("%s],\n", print_level_tabel[print_level]);
-    }
-    else
-        print_log_to_both("%s]\n", print_level_tabel[print_level]);
 }
 /******* END FRAME DECODING ***************************************************/
 
