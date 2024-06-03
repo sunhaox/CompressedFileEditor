@@ -594,7 +594,7 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
     int last_block = 0;
     int fist_block_offset = in->len;
 
-    cJSON* blocks_json = cJSON_AddObjectToObject(json, "ZSTD_BLOCK");
+    cJSON* blocks_json = cJSON_AddArrayToObject(json, "ZSTD_BLOCK");
     do {
         cJSON* block_json = cJSON_CreateObject();
         cJSON_AddNumberToObject(block_json, "BLOCK_BIT_POSITION", (fist_block_offset - in->len) * 8);
