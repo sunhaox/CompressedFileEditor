@@ -247,7 +247,7 @@ static void FSE_init_dtable(FSE_dtable *const dtable,
 /// Decode an FSE header as defined in the Zstandard format specification and
 /// use the decoded frequencies to initialize a decoding table.
 static void FSE_decode_header(FSE_dtable *const dtable, istream_t *const in,
-                                const int max_accuracy_log);
+                                const int max_accuracy_log, cJSON *json);
 
 /// Initialize an FSE table that will always return the same symbol and consume
 /// 0 bits per symbol, to be used for RLE mode in sequence commands
@@ -346,15 +346,15 @@ static void decode_frame(ostream_t *const out, istream_t *const in,
 
 // Decode data in a compressed block
 static void decompress_block(frame_context_t *const ctx, ostream_t *const out,
-                             istream_t *const in);
+                             istream_t *const in, cJSON *json);
 
 // Decode the literals section of a block
 static size_t decode_literals(frame_context_t *const ctx, istream_t *const in,
-                              u8 **const literals);
+                              u8 **const literals, cJSON *json);
 
 // Decode the sequences part of a block
 static size_t decode_sequences(frame_context_t *const ctx, istream_t *const in,
-                               sequence_command_t **const sequences);
+                               sequence_command_t **const sequences, cJSON *json);
 
 // Execute the decoded sequences on the literals block
 static void execute_sequences(frame_context_t *const ctx, ostream_t *const out,
@@ -611,11 +611,21 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
         last_block = (int)IO_read_bits(in, 1);
         const int block_type = (int)IO_read_bits(in, 2);
         const size_t block_len = IO_read_bits(in, 21);
-        cJSON_AddNumberToObject(block_json, "last block", last_block);
-        cJSON_AddNumberToObject(block_json, "block_length", block_len);
+
+        cJSON* last_block_json = cJSON_AddObjectToObject(block_json, "last block");
+        cJSON_AddNumberToObject(last_block_json, "bit_size", 1);
+        cJSON_AddNumberToObject(last_block_json, "value", last_block);
+
         switch (block_type) {
         case 0: {
-            cJSON_AddStringToObject(block_json, "block type", "raw block");
+            cJSON* block_type_json = cJSON_AddObjectToObject(block_json, "block type");
+            cJSON_AddNumberToObject(block_type_json, "bit_size", 2);
+            cJSON_AddNumberToObject(block_type_json, "value", block_type);
+            cJSON_AddStringToObject(block_type_json, "description", "raw block");
+
+            cJSON* block_len_json = cJSON_AddObjectToObject(block_json, "block_length");
+            cJSON_AddNumberToObject(block_len_json, "bit_size", 21);
+            cJSON_AddNumberToObject(block_len_json, "value", block_len);
 
             // "Raw_Block - this is an uncompressed block. Block_Size is the
             // number of bytes to read and copy."
@@ -640,23 +650,44 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
 
             ctx->current_total_output += block_len;
 
-            cJSON_AddStringToObject(block_json, "block type", "RLE block");
-            cJSON_AddNumberToObject(block_json, "repeat data", read_ptr[0]);
+            cJSON* block_type_json = cJSON_AddObjectToObject(block_json, "block type");
+            cJSON_AddNumberToObject(block_type_json, "bit_size", 2);
+            cJSON_AddNumberToObject(block_type_json, "value", block_type);
+            cJSON_AddStringToObject(block_type_json, "description", "RLE block");
+
+            cJSON* block_len_json = cJSON_AddObjectToObject(block_json, "block_length");
+            cJSON_AddNumberToObject(block_len_json, "bit_size", 21);
+            cJSON_AddNumberToObject(block_len_json, "value", block_len);
+
+            cJSON* data_json = cJSON_AddObjectToObject(block_json, "repeat data");
+            cJSON_AddNumberToObject(data_json, "bit_size", 8);
+            cJSON_AddNumberToObject(data_json, "value", read_ptr[0]);
             break;
         }
         case 2: {
-            cJSON_AddStringToObject(block_json, "block type", "compressed block");
+
+            cJSON* block_type_json = cJSON_AddObjectToObject(block_json, "block type");
+            cJSON_AddNumberToObject(block_type_json, "bit_size", 2);
+            cJSON_AddNumberToObject(block_type_json, "value", block_type);
+            cJSON_AddStringToObject(block_type_json, "description", "compressed block");
+
+            cJSON* block_len_json = cJSON_AddObjectToObject(block_json, "block_length");
+            cJSON_AddNumberToObject(block_len_json, "bit_size", 21);
+            cJSON_AddNumberToObject(block_len_json, "value", block_len);
             // "Compressed_Block - this is a Zstandard compressed block,
             // detailed in another section of this specification. Block_Size is
             // the compressed size.
 
             // Create a sub-stream for the block
             istream_t block_stream = IO_make_sub_istream(in, block_len);
-            decompress_block(ctx, out, &block_stream);
+            decompress_block(ctx, out, &block_stream, block_json);
             break;
         }
         case 3:
-            cJSON_AddStringToObject(block_json, "block type", "Reserved");
+            cJSON* block_type_json = cJSON_AddObjectToObject(block_json, "block type");
+            cJSON_AddNumberToObject(block_type_json, "bit_size", 2);
+            cJSON_AddNumberToObject(block_type_json, "value", block_type);
+            cJSON_AddStringToObject(block_type_json, "description", "reserved");
             // "Reserved - this is not a block. This value cannot be used with
             // current version of this specification."
             CORRUPTION();
@@ -675,7 +706,7 @@ static void decompress_data(frame_context_t *const ctx, ostream_t *const out,
 
 /******* BLOCK DECOMPRESSION **************************************************/
 static void decompress_block(frame_context_t *const ctx, ostream_t *const out,
-                             istream_t *const in) {
+                             istream_t *const in, cJSON *json) {
     // "A compressed block consists of 2 sections :
     //
     // Literals_Section
@@ -683,13 +714,15 @@ static void decompress_block(frame_context_t *const ctx, ostream_t *const out,
 
 
     // Part 1: decode the literals block
+    cJSON* literals_json = cJSON_AddObjectToObject(json, "literals section");
     u8 *literals = NULL;
-    const size_t literals_size = decode_literals(ctx, in, &literals);
+    const size_t literals_size = decode_literals(ctx, in, &literals, literals_json);
 
     // Part 2: decode the sequences block
+    cJSON* sequences_json = cJSON_AddObjectToObject(json, "sequences section");
     sequence_command_t *sequences = NULL;
     const size_t num_sequences =
-        decode_sequences(ctx, in, &sequences);
+        decode_sequences(ctx, in, &sequences, sequences_json);
 
     // Part 3: combine literals and sequence commands to generate output
     execute_sequences(ctx, out, literals, literals_size, sequences,
@@ -702,18 +735,19 @@ static void decompress_block(frame_context_t *const ctx, ostream_t *const out,
 /******* LITERALS DECODING ****************************************************/
 static size_t decode_literals_simple(istream_t *const in, u8 **const literals,
                                      const int block_type,
-                                     const int size_format);
+                                     const int size_format, cJSON *json);
 static size_t decode_literals_compressed(frame_context_t *const ctx,
                                          istream_t *const in,
                                          u8 **const literals,
                                          const int block_type,
-                                         const int size_format);
-static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in);
+                                         const int size_format,
+                                         cJSON *json);
+static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in, cJSON *json);
 static void fse_decode_hufweights(ostream_t *weights, istream_t *const in,
-                                    int *const num_symbs);
+                                    int *const num_symbs, cJSON *json);
 
 static size_t decode_literals(frame_context_t *const ctx, istream_t *const in,
-                              u8 **const literals) {
+                              u8 **const literals, cJSON *json) {
     // "Literals can be stored uncompressed or compressed using Huffman prefix
     // codes. When compressed, an optional tree description can be present,
     // followed by 1 or 4 streams."
@@ -733,22 +767,44 @@ static size_t decode_literals(frame_context_t *const ctx, istream_t *const in,
     int block_type = (int)IO_read_bits(in, 2);
     int size_format = (int)IO_read_bits(in, 2);
 
+    cJSON* block_type_json = cJSON_AddObjectToObject(json, "Block Type");
+    cJSON_AddNumberToObject(block_type_json, "bit_size", 2);
+    cJSON_AddNumberToObject(block_type_json, "value", block_type);
+    switch (block_type)
+    {
+    case 0:
+        cJSON_AddStringToObject(block_type_json, "description", "Raw_Literals_Block - Literals are stored uncompressed.");
+        break;
+    case 1:
+        cJSON_AddStringToObject(block_type_json, "description", "RLE_Literals_Block - Literals consist of a single byte value repeated Regenerated_Size times.");
+        break;
+    case 2:
+        cJSON_AddStringToObject(block_type_json, "description", "Compressed_Literals_Block - a standard Huffman-compressed block");
+        break;
+    case 3:
+        cJSON_AddStringToObject(block_type_json, "description", "Treeless_Literals_Block - a Huffman-compressed block, using Huffman tree from previous Huffman-compressed literals block");
+    default:
+        break;
+    }
+
     if (block_type <= 1) {
         // Raw or RLE literals block
         return decode_literals_simple(in, literals, block_type,
-                                      size_format);
+                                      size_format, json);
     } else {
         // Huffman compressed literals
         return decode_literals_compressed(ctx, in, literals, block_type,
-                                          size_format);
+                                          size_format, json);
     }
 }
 
 /// Decodes literals blocks in raw or RLE form
 static size_t decode_literals_simple(istream_t *const in, u8 **const literals,
                                      const int block_type,
-                                     const int size_format) {
+                                     const int size_format, cJSON *json) {
     size_t size;
+    u8 bit_size = 0;
+    char* desc = "";
     switch (size_format) {
     // These cases are in the form ?0
     // In this case, the ? bit is actually part of the size field
@@ -757,14 +813,20 @@ static size_t decode_literals_simple(istream_t *const in, u8 **const literals,
         // "Size_Format uses 1 bit. Regenerated_Size uses 5 bits (0-31)."
         IO_rewind_bits(in, 1);
         size = IO_read_bits(in, 5);
+        bit_size = 1;
+        desc = "Size_Format uses 1 bit. Regenerated_Size uses 5 bits (0-31). Literals_Section_Header uses 1 byte.";
         break;
     case 1:
         // "Size_Format uses 2 bits. Regenerated_Size uses 12 bits (0-4095)."
         size = IO_read_bits(in, 12);
+        bit_size = 2;
+        desc = "Size_Format uses 2 bits. Regenerated_Size uses 12 bits (0-4095). Literals_Section_Header uses 2 bytes.";
         break;
     case 3:
         // "Size_Format uses 2 bits. Regenerated_Size uses 20 bits (0-1048575)."
         size = IO_read_bits(in, 20);
+        bit_size = 2;
+        desc = "Size_Format uses 2 bits. Regenerated_Size uses 20 bits (0-1048575). Literals_Section_Header uses 3 bytes.";
         break;
     default:
         // Size format is in range 0-3
@@ -774,6 +836,11 @@ static size_t decode_literals_simple(istream_t *const in, u8 **const literals,
     if (size > MAX_LITERALS_SIZE) {
         CORRUPTION();
     }
+    
+    cJSON* size_format_json = cJSON_AddObjectToObject(json, "Size Format");
+    cJSON_AddNumberToObject(size_format_json, "bit_size", bit_size);
+    cJSON_AddNumberToObject(size_format_json, "value", size_format);
+    cJSON_AddStringToObject(size_format_json, "description", desc);
 
     *literals = malloc(size);
     if (!*literals) {
@@ -805,34 +872,54 @@ static size_t decode_literals_compressed(frame_context_t *const ctx,
                                          istream_t *const in,
                                          u8 **const literals,
                                          const int block_type,
-                                         const int size_format) {
+                                         const int size_format,
+                                         cJSON *json) {
     size_t regenerated_size, compressed_size;
-    // Only size_format=0 has 1 stream, so default to 4
+    u8 regenerated_size_bit_num, compressed_size_bit_num;
+
+    cJSON* size_format_json = cJSON_AddObjectToObject(json, "Size Format");
+    cJSON_AddNumberToObject(size_format_json, "bit_size", 2);
+    cJSON_AddNumberToObject(size_format_json, "value", size_format);
+
+    // Only size_format=0 has 1 stream, so default to 4    
     int num_streams = 4;
     switch (size_format) {
     case 0:
         // "A single stream. Both Compressed_Size and Regenerated_Size use 10
         // bits (0-1023)."
         num_streams = 1;
-    // Fall through as it has the same size format
-        /* fallthrough */
+        regenerated_size = IO_read_bits(in, 10);
+        compressed_size = IO_read_bits(in, 10);
+        regenerated_size_bit_num = 10;
+        compressed_size_bit_num = 10;
+        cJSON_AddStringToObject(size_format_json, "description", "A single stream. Both Regenerated_Size and Compressed_Size use 10 bits (0-1023). Literals_Section_Header uses 3 bytes.");
+        break;
     case 1:
         // "4 streams. Both Compressed_Size and Regenerated_Size use 10 bits
         // (0-1023)."
         regenerated_size = IO_read_bits(in, 10);
         compressed_size = IO_read_bits(in, 10);
+        regenerated_size_bit_num = 10;
+        compressed_size_bit_num = 10;
+        cJSON_AddStringToObject(size_format_json, "description", "4 streams. Both Regenerated_Size and Compressed_Size use 10 bits (6-1023). Literals_Section_Header uses 3 bytes.");
         break;
     case 2:
         // "4 streams. Both Compressed_Size and Regenerated_Size use 14 bits
         // (0-16383)."
         regenerated_size = IO_read_bits(in, 14);
         compressed_size = IO_read_bits(in, 14);
+        regenerated_size_bit_num = 14;
+        compressed_size_bit_num = 14;
+        cJSON_AddStringToObject(size_format_json, "description", "4 streams. Both Regenerated_Size and Compressed_Size use 14 bits (6-16383). Literals_Section_Header uses 4 bytes.");
         break;
     case 3:
         // "4 streams. Both Compressed_Size and Regenerated_Size use 18 bits
         // (0-262143)."
         regenerated_size = IO_read_bits(in, 18);
         compressed_size = IO_read_bits(in, 18);
+        regenerated_size_bit_num = 18;
+        compressed_size_bit_num = 18;
+        cJSON_AddStringToObject(size_format_json, "description", "4 streams. Both Regenerated_Size and Compressed_Size use 18 bits (6-262143). Literals_Section_Header uses 5 bytes.");
         break;
     default:
         // Impossible
@@ -841,6 +928,14 @@ static size_t decode_literals_compressed(frame_context_t *const ctx,
     if (regenerated_size > MAX_LITERALS_SIZE) {
         CORRUPTION();
     }
+
+    cJSON* regenerated_size_json = cJSON_AddObjectToObject(json, "Regenerated_Size");
+    cJSON_AddNumberToObject(regenerated_size_json, "bit_size", regenerated_size_bit_num);
+    cJSON_AddNumberToObject(regenerated_size_json, "value", regenerated_size);
+
+    cJSON* compressed_size_json = cJSON_AddObjectToObject(json, "Compressed_Size");
+    cJSON_AddNumberToObject(compressed_size_json, "bit_size", compressed_size_bit_num);
+    cJSON_AddNumberToObject(compressed_size_json, "value", compressed_size);
 
     *literals = malloc(regenerated_size);
     if (!*literals) {
@@ -856,7 +951,7 @@ static size_t decode_literals_compressed(frame_context_t *const ctx,
         // Compressed_Literals_Block (2)."
 
         HUF_free_dtable(&ctx->literals_dtable);
-        decode_huf_table(&ctx->literals_dtable, &huf_stream);
+        decode_huf_table(&ctx->literals_dtable, &huf_stream, json);
     } else {
         // If the previous Huffman table is being repeated, ensure it exists
         if (!ctx->literals_dtable.symbols) {
@@ -879,12 +974,16 @@ static size_t decode_literals_compressed(frame_context_t *const ctx,
 }
 
 // Decode the Huffman table description
-static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in) {
+static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in, cJSON *json) {
     // "All literal values from zero (included) to last present one (excluded)
     // are represented by Weight with values from 0 to Max_Number_of_Bits."
 
     // "This is a single byte value (0-255), which describes how to decode the list of weights."
     const u8 header = IO_read_bits(in, 8);
+
+    cJSON* huffman_tree_header = cJSON_AddObjectToObject(json, "Huffman Tree Header");
+    cJSON_AddNumberToObject(huffman_tree_header, "bit_size", 8);
+    cJSON_AddNumberToObject(huffman_tree_header, "value", header);
 
     u8 weights[HUF_MAX_SYMBS];
     memset(weights, 0, sizeof(weights));
@@ -892,6 +991,8 @@ static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in) {
     int num_symbs;
 
     if (header >= 128) {
+        cJSON_AddStringToObject(huffman_tree_header, "description", "the series of weights uses a direct representation, where each Weight is encoded directly as a 4 bits field (0-15).");
+
         // "This is a direct representation, where each Weight is written
         // directly as a 4 bits field (0-15). The full representation occupies
         // ((Number_of_Symbols+1)/2) bytes, meaning it uses a last full byte
@@ -914,12 +1015,16 @@ static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in) {
                 weights[i] = weight_src[i / 2] & 0xf;
             }
         }
+
+        dump_data_to_json(json, "weights", weights, HUF_MAX_SYMBS);
     } else {
+        cJSON_AddStringToObject(huffman_tree_header, "description", "the series of weights is compressed using FSE. The length of the FSE-compressed series is equal to headerByte (0-127).");
+
         // The weights are FSE encoded, decode them before we can construct the
         // table
         istream_t fse_stream = IO_make_sub_istream(in, header);
         ostream_t weight_stream = IO_make_ostream(weights, HUF_MAX_SYMBS);
-        fse_decode_hufweights(&weight_stream, &fse_stream, &num_symbs);
+        fse_decode_hufweights(&weight_stream, &fse_stream, &num_symbs, json);
     }
 
     // Construct the table using the decoded weights
@@ -927,7 +1032,7 @@ static void decode_huf_table(HUF_dtable *const dtable, istream_t *const in) {
 }
 
 static void fse_decode_hufweights(ostream_t *weights, istream_t *const in,
-                                    int *const num_symbs) {
+                                    int *const num_symbs, cJSON *json) {
     const int MAX_ACCURACY_LOG = 7;
 
     FSE_dtable dtable;
@@ -935,7 +1040,7 @@ static void fse_decode_hufweights(ostream_t *weights, istream_t *const in,
     // "An FSE bitstream starts by a header, describing probabilities
     // distribution. It will create a Decoding Table. For a list of Huffman
     // weights, maximum accuracy is 7 bits."
-    FSE_decode_header(&dtable, in, MAX_ACCURACY_LOG);
+    FSE_decode_header(&dtable, in, MAX_ACCURACY_LOG, json);
 
     // Decode the weights
     *num_symbs = FSE_decompress_interleaved2(&dtable, weights, in);
@@ -1017,7 +1122,8 @@ static void decode_seq_table(FSE_dtable *const table, istream_t *const in,
                                const seq_part_t type, const seq_mode_t mode);
 
 static size_t decode_sequences(frame_context_t *const ctx, istream_t *in,
-                               sequence_command_t **const sequences) {
+                               sequence_command_t **const sequences, 
+                               cJSON *json) {
     // "A compressed block is a succession of sequences . A sequence is a
     // literal copy command, followed by a match copy command. A literal copy
     // command specifies a length. It is the number of bytes to be copied (or
@@ -1223,7 +1329,7 @@ static void decode_seq_table(FSE_dtable *const table, istream_t *const in,
     case seq_fse: {
         // "FSE_Compressed_Mode : standard FSE compression. A distribution table
         // will be present "
-        FSE_decode_header(table, in, max_accuracies[type]);
+        FSE_decode_header(table, in, max_accuracies[type], 0);
         break;
     }
     case seq_repeat:
@@ -1476,7 +1582,7 @@ void parse_dictionary(dictionary_t *const dict, const void *src,
     // recent offsets (instead of using {1,4,8}), stored in order, 4-bytes
     // little-endian each, for a total of 12 bytes. Each recent offset must have
     // a value < dictionary size."
-    decode_huf_table(&dict->literals_dtable, &in);
+    decode_huf_table(&dict->literals_dtable, &in, 0);
     decode_seq_table(&dict->of_dtable, &in, seq_offset, seq_fse);
     decode_seq_table(&dict->ml_dtable, &in, seq_match_length, seq_fse);
     decode_seq_table(&dict->ll_dtable, &in, seq_literal_length, seq_fse);
@@ -2209,7 +2315,7 @@ static void FSE_init_dtable(FSE_dtable *const dtable,
 /// Decode an FSE header as defined in the Zstandard format specification and
 /// use the decoded frequencies to initialize a decoding table.
 static void FSE_decode_header(FSE_dtable *const dtable, istream_t *const in,
-                                const int max_accuracy_log) {
+                                const int max_accuracy_log, cJSON *json) {
     // "An FSE distribution table describes the probabilities of all symbols
     // from 0 to the last present one (included) on a normalized scale of 1 <<
     // Accuracy_Log .
@@ -2229,6 +2335,11 @@ static void FSE_decode_header(FSE_dtable *const dtable, istream_t *const in,
     if (accuracy_log > max_accuracy_log) {
         ERROR("FSE accuracy too large");
     }
+
+    cJSON* accuracy_log_json = cJSON_AddObjectToObject(json, "Accuracy log");
+    cJSON_AddNumberToObject(accuracy_log_json, "bit_size", 4);
+    cJSON_AddNumberToObject(accuracy_log_json, "value", accuracy_log - 5);
+    addStringToObjectFormatted(accuracy_log_json, "description", "accuracy_log = 5 + %d = %d", accuracy_log - 5, accuracy_log);
 
     // "Then follows each symbol value, from 0 to last present one. The number
     // of bits used by each field is variable. It depends on :
