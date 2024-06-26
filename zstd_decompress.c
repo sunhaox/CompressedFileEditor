@@ -1113,7 +1113,8 @@ static const u8 SEQ_MAX_CODES[3] = {35, (u8)-1, 52};
 static void decompress_sequences(frame_context_t *const ctx,
                                  istream_t *const in,
                                  sequence_command_t *const sequences,
-                                 const size_t num_sequences);
+                                 const size_t num_sequences,
+                                 cJSON *json);
 static sequence_command_t decode_sequence(sequence_states_t *const state,
                                           const u8 *const src,
                                           i64 *const offset,
@@ -1141,12 +1142,21 @@ static size_t decode_sequences(frame_context_t *const ctx, istream_t *in,
     if (header < 128) {
         // "Number_of_Sequences = byte0 . Uses 1 byte."
         num_sequences = header;
+        cJSON* header_json = cJSON_AddObjectToObject(json, "num_sequences");
+        cJSON_AddNumberToObject(header_json, "bit_size", 8);
+        cJSON_AddNumberToObject(header_json, "value", num_sequences);
     } else if (header < 255) {
         // "Number_of_Sequences = ((byte0-128) << 8) + byte1 . Uses 2 bytes."
         num_sequences = ((header - 128) << 8) + IO_read_bits(in, 8);
+        cJSON* header_json = cJSON_AddObjectToObject(json, "num_sequences");
+        cJSON_AddNumberToObject(header_json, "bit_size", 16);
+        cJSON_AddNumberToObject(header_json, "value", num_sequences);
     } else {
         // "Number_of_Sequences = byte1 + (byte2<<8) + 0x7F00 . Uses 3 bytes."
         num_sequences = IO_read_bits(in, 16) + 0x7F00;
+        cJSON* header_json = cJSON_AddObjectToObject(json, "num_sequences");
+        cJSON_AddNumberToObject(header_json, "bit_size", 24);
+        cJSON_AddNumberToObject(header_json, "value", num_sequences);
     }
 
     if (num_sequences == 0) {
@@ -1160,14 +1170,14 @@ static size_t decode_sequences(frame_context_t *const ctx, istream_t *in,
         BAD_ALLOC();
     }
 
-    decompress_sequences(ctx, in, *sequences, num_sequences);
+    decompress_sequences(ctx, in, *sequences, num_sequences, json);
     return num_sequences;
 }
 
 /// Decompress the FSE encoded sequence commands
 static void decompress_sequences(frame_context_t *const ctx, istream_t *in,
                                  sequence_command_t *const sequences,
-                                 const size_t num_sequences) {
+                                 const size_t num_sequences, cJSON *json) {
     // "The Sequences_Section regroup all symbols required to decode commands.
     // There are 3 symbol types : literals lengths, offsets and match lengths.
     // They are encoded together, interleaved, in a single bitstream."
@@ -1187,6 +1197,72 @@ static void decompress_sequences(frame_context_t *const ctx, istream_t *in,
     if ((compression_modes & 3) != 0) {
         // Reserved bits set
         CORRUPTION();
+    }
+
+    cJSON* reserved_json = cJSON_AddObjectToObject(json, "Reserved");
+    cJSON_AddNumberToObject(reserved_json, "bit_size", 2);
+
+    cJSON* match_lengths_mode_json = cJSON_AddObjectToObject(json, "Match_Lengths_Mode");
+    cJSON_AddNumberToObject(match_lengths_mode_json, "bit_size", 2);
+    cJSON_AddNumberToObject(match_lengths_mode_json, "value", (compression_modes >> 2) & 3);
+    switch ((compression_modes >> 2) & 3)
+    {
+    case 0:
+        cJSON_AddStringToObject(match_lengths_mode_json, "description", "Predefined Mode. A predefined FSE distribution table is used, defined in default distributions. No distribution table will be present.");
+        break;
+    case 1:
+        cJSON_AddStringToObject(match_lengths_mode_json, "description", "RLE Mode. The table description consists of a single byte, which contains the symbol's value. This symbol will be used for all sequences.");
+        break;
+    case 2:
+        cJSON_AddStringToObject(match_lengths_mode_json, "description", "FSE Compressed Mode. standard FSE compression. A distribution table will be present.");
+        break;
+    case 3:
+        cJSON_AddStringToObject(match_lengths_mode_json, "description", "Repeat Mode. The table used in the previous Compressed_Block with Number_of_Sequences > 0 will be used again, or if this is the first block, table in the dictionary will be used.");
+        break;
+    default:
+        break;
+    }
+
+    cJSON* offsets_mode_json = cJSON_AddObjectToObject(json, "Offsets_Mode");
+    cJSON_AddNumberToObject(offsets_mode_json, "bit_size", 2);
+    cJSON_AddNumberToObject(offsets_mode_json, "value", (compression_modes >> 4) & 3);
+    switch ((compression_modes >> 4) & 3)
+    {
+    case 0:
+        cJSON_AddStringToObject(offsets_mode_json, "description", "Predefined Mode. A predefined FSE distribution table is used, defined in default distributions. No distribution table will be present.");
+        break;
+    case 1:
+        cJSON_AddStringToObject(offsets_mode_json, "description", "RLE Mode. The table description consists of a single byte, which contains the symbol's value. This symbol will be used for all sequences.");
+        break;
+    case 2:
+        cJSON_AddStringToObject(offsets_mode_json, "description", "FSE Compressed Mode. standard FSE compression. A distribution table will be present.");
+        break;
+    case 3:
+        cJSON_AddStringToObject(offsets_mode_json, "description", "Repeat Mode. The table used in the previous Compressed_Block with Number_of_Sequences > 0 will be used again, or if this is the first block, table in the dictionary will be used.");
+        break;
+    default:
+        break;
+    }
+
+    cJSON* literals_length_mode_json = cJSON_AddObjectToObject(json, "Literals_Lengths_Mode");
+    cJSON_AddNumberToObject(literals_length_mode_json, "bit_size", 2);
+    cJSON_AddNumberToObject(literals_length_mode_json, "value", (compression_modes >> 6) & 3);
+    switch ((compression_modes >> 6) & 3)
+    {
+    case 0:
+        cJSON_AddStringToObject(literals_length_mode_json, "description", "Predefined Mode. A predefined FSE distribution table is used, defined in default distributions. No distribution table will be present.");
+        break;
+    case 1:
+        cJSON_AddStringToObject(literals_length_mode_json, "description", "RLE Mode. The table description consists of a single byte, which contains the symbol's value. This symbol will be used for all sequences.");
+        break;
+    case 2:
+        cJSON_AddStringToObject(literals_length_mode_json, "description", "FSE Compressed Mode. standard FSE compression. A distribution table will be present.");
+        break;
+    case 3:
+        cJSON_AddStringToObject(literals_length_mode_json, "description", "Repeat Mode. The table used in the previous Compressed_Block with Number_of_Sequences > 0 will be used again, or if this is the first block, table in the dictionary will be used.");
+        break;
+    default:
+        break;
     }
 
     // "Following the header, up to 3 distribution tables can be described. When
